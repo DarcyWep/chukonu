@@ -59,15 +59,13 @@ type Transaction struct {
 // createBatchTxs retrieves tx data by querying database and writes to file
 func createBatchTxs(pureTxs []*transaction.Transaction) []*types.Transaction {
 	ntxs := make([]*types.Transaction, 0)
-	for index, ptx := range pureTxs {
-		if index < len(pureTxs)-1 {
-			trans := ptx.Transfers
-			payload := createNewPayloads(trans)
-			if len(payload) == 0 {
-				continue
-			}
-			ntxs = append(ntxs, types.NewTransaction(ptx.Hash, 0, []byte("FromAddress"), []byte("ToAddress"), payload))
+	for _, ptx := range pureTxs {
+		trans := ptx.Transfers
+		payload := createNewPayloads(trans)
+		if len(payload) == 0 {
+			continue
 		}
+		ntxs = append(ntxs, types.NewTransaction(ptx.Hash, 0, []byte("FromAddress"), []byte("ToAddress"), payload))
 	}
 	return ntxs
 }
