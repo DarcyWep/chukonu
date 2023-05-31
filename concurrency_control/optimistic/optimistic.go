@@ -29,7 +29,7 @@ func processOptimistic(otxs optimisticTxs, statedb *stateDB) []bool {
 	runtime.GOMAXPROCS(proNum)
 	proWg.Add(proNum)
 	for i := 0; i < proNum; i++ {
-		go executeTx(proChan, abortChan, statedb, &proWg, &mutex)
+		go executeOptimisticTx(proChan, abortChan, statedb, &proWg, &mutex)
 	}
 
 	for _, otx := range otxs {
@@ -50,19 +50,39 @@ func executeOptimisticTx(proCh, abortChan chan *optimisticTx, statedb *stateDB, 
 	defer wg.Done()
 	for otx := range proCh {
 		mutex.RLock() // 读取所需的状态
-		for addr, _ := range otx.allAddress {
-			otx.allAddress[addr] = statedb.getState(addr)
+		//for addr, _ := range otx.readAddresses {
+		//	otx.readAddresses[addr] = statedb.getState(addr)
+		//}
+		for addr, _ := range otx.writeAddress {
+			otx.writeAddress[addr] = statedb.getState(addr)
 		}
 		mutex.RUnlock() // 读取所需的状态
 
 		time.Sleep(otx.executionTime) // 模拟执行
 
 		abort := false
-		mutex.Lock() // 验证交易
-		for addr, value := range otx.allAddress {
-			abort = statedb.setState(addr, value) // 无预设顺序
-			if abort {
-				break
+		// 验证交易
+		mutex.Lock()
+		//for addr, value := range otx.allAddress {
+		//for addr, value := range otx.writeAddress {
+		//	abort = statedb.setState(addr, value, otx.index) // 无预设顺序
+		//	if abort {
+		//		break
+		//	}
+		//}
+		//for addr, value := range otx.readAddresses {
+		//	newValue := statedb.getState(addr)
+		//	if newValue != value {
+		//		abort = true
+		//		break
+		//	}
+		//}
+		if !abort {
+			for addr, value := range otx.writeAddress {
+				abort = statedb.setState(addr, value, otx.index) // 无预设顺序
+				if abort {
+					break
+				}
 			}
 		}
 		mutex.Unlock() // 验证交易

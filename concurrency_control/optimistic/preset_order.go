@@ -35,7 +35,7 @@ func initPresetVersion(otxs optimisticTxs) {
 
 	for addr, newOtxs := range address2OptimisticTxs {
 		for i, otx := range newOtxs {
-			otx.presetVersion[addr] = i
+			otx.presetVersion[addr] = i - 1
 		}
 	}
 }
@@ -85,7 +85,7 @@ func executeTx(proCh, abortChan chan *optimisticTx, statedb *stateDB, wg *sync.W
 		for addr, value := range otx.allAddress {
 			value = otx.presetVersion[addr] // 有预设顺序的
 
-			abort = statedb.setState(addr, value) // 无预设顺序
+			abort = statedb.setState(addr, value, otx.index) // 无预设顺序
 			if abort {
 				break
 			}

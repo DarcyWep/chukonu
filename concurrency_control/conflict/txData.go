@@ -1,7 +1,7 @@
 package conflict
 
 import (
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/types"
+	"chukonu/concurrency_control/conflict/nezha/core/types"
 	"github.com/DarcyWep/pureData/transaction"
 	"math/rand"
 	"strconv"

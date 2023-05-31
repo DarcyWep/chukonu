@@ -1,7 +1,7 @@
 package classic
 
 import (
-	"chukonu/comparing_concurrency_control/conflict/nezha"
+	"chukonu/concurrency_control/conflict/nezha"
 	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"

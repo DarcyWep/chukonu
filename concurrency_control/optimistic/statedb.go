@@ -7,7 +7,7 @@ import (
 
 type stateObject struct {
 	address  common.Address
-	versions []int
+	versions []int // tx index is state version
 }
 
 func newStateObject(addr common.Address) *stateObject {
@@ -18,11 +18,15 @@ func newStateObject(addr common.Address) *stateObject {
 }
 
 func (so *stateObject) getState() int {
-	return len(so.versions)
+	if len(so.versions) == 0 {
+		return -1
+	}
+	return so.versions[len(so.versions)-1]
 }
 
-func (so *stateObject) setState() {
-	so.versions = append(so.versions, len(so.versions))
+// setState set tx index as version
+func (so *stateObject) setState(version int) {
+	so.versions = append(so.versions, version)
 }
 
 type stateDB struct {
@@ -37,7 +41,7 @@ func newStateDB() *stateDB {
 }
 
 func (s *stateDB) getState(addr common.Address) int {
-	var version int = 0
+	var version int = -1
 	s.objectMutex.RLock()
 	obj, ok := s.stateObjects[addr]
 	if ok {
@@ -58,14 +62,14 @@ func (s *stateDB) setObject(addr common.Address, obj *stateObject) {
 	s.objectMutex.Unlock()
 }
 
-func (s *stateDB) setState(addr common.Address, preValue int) bool {
+func (s *stateDB) setState(addr common.Address, preValue int, newValue int) bool {
 	var abort bool = false
 	s.objectMutex.Lock()
 	obj, _ := s.stateObjects[addr]
 	if obj.getState() != preValue {
 		abort = true
 	} else {
-		obj.setState()
+		obj.setState(newValue)
 	}
 	s.objectMutex.Unlock()
 	return abort

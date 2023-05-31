@@ -1,8 +1,8 @@
 package tp
 
 import (
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/state"
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/types"
+	"chukonu/concurrency_control/conflict/nezha/core/state"
+	"chukonu/concurrency_control/conflict/nezha/core/types"
 	"errors"
 	"strings"
 	"time"

@@ -1,7 +1,7 @@
 package tp
 
 import (
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/types"
+	"chukonu/concurrency_control/conflict/nezha/core/types"
 	"reflect"
 	"strings"
 )

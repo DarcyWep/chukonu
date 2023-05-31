@@ -1,10 +1,10 @@
 package conflict
 
 import (
-	"chukonu/comparing_concurrency_control/conflict/nezha"
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/state"
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/tp"
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/types"
+	"chukonu/concurrency_control/conflict/nezha"
+	"chukonu/concurrency_control/conflict/nezha/core/state"
+	"chukonu/concurrency_control/conflict/nezha/core/tp"
+	"chukonu/concurrency_control/conflict/nezha/core/types"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 	"os"

@@ -1,7 +1,7 @@
 package state
 
 import (
-	"chukonu/comparing_concurrency_control/conflict/nezha/core/types"
+	"chukonu/concurrency_control/conflict/nezha/core/types"
 	"errors"
 	"log"
 	"sync"

@@ -8,7 +8,6 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/tv42/base58 v1.0.0
 	github.com/wealdtech/go-merkletree v1.0.0
-	github.com/yoseplee/vrf v0.0.0-20210814110709-d1caf509310b
 	github.com/zllai/go-MerklePatriciaTree v0.0.0-20190826154110-1538c9c6c9e6
 	gonum.org/v1/gonum v0.13.0
 )
