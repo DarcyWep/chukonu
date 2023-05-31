@@ -21,13 +21,3 @@ func openLeveldb(path string) (*leveldb.DB, error) {
 		ReadOnly:               true,
 	})
 }
-
-//func Optimistic(number *big.Int) {
-//	txs := getAllTxsByNumber(number)
-//	optimistic.Simulated(txs[:len(txs)-1])
-//}
-//
-//func Classic(number *big.Int) {
-//	txs := getAllTxsByNumber(number)
-//	classic.Classic(txs[:len(txs)-1])
-//}

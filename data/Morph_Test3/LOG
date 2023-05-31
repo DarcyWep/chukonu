@@ -1,2 +1,4 @@
-=============== May 30, 2023 (CST) ===============
-22:15:29.595206 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+=============== May 31, 2023 (CST) ===============
+00:38:32.065976 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+00:38:32.119522 db@open opening
+00:38:32.120439 version@stat F·[] S·0B[] Sc·[]

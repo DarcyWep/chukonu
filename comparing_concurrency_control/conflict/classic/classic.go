@@ -2,12 +2,11 @@ package classic
 
 import (
 	"chukonu/comparing_concurrency_control/conflict/nezha"
-	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func Classic(txs []*transaction.Transaction) {
+func Classic(txs []*transaction.Transaction) []bool {
 	cgtxs := make(classicGraphTxs, 0)
 	for _, tx := range txs {
 		cgtx := newClassicGraphTx(*tx.Hash, tx.ExecutionTime, tx.Index)
@@ -46,14 +45,8 @@ func Classic(txs []*transaction.Transaction) {
 
 	ls := newLoopSolving(&graph)
 	ls.removeLoops()
-	abortTxs := make([]int, 0)
-	for i, isDelete := range ls.deleteNodes {
-		if isDelete {
-			abortTxs = append(abortTxs, i)
-		}
-	}
 
-	fmt.Println(len(abortTxs), abortTxs)
+	return ls.deleteNodes
 }
 
 func buildConflictGraph(cgtxs classicGraphTxs) [][]int {
