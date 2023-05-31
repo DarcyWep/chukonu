@@ -2,6 +2,7 @@ package classic
 
 import (
 	"chukonu/comparing_concurrency_control/conflict/nezha"
+	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -15,6 +16,7 @@ func Classic(txs []*transaction.Transaction) []bool {
 	}
 
 	graph := buildConflictGraph(cgtxs)
+
 	//graph := [][]int{
 	//	{1},
 	//	{2, 4, 7},
@@ -45,7 +47,7 @@ func Classic(txs []*transaction.Transaction) []bool {
 
 	ls := newLoopSolving(&graph)
 	ls.removeLoops()
-
+	//TopologicalSort(graph, ls.deleteNodes)
 	return ls.deleteNodes
 }
 
@@ -158,10 +160,57 @@ func tidyGraph(graph *[][]int, deleteNodes []bool) {
 	//}
 }
 
-//func TopologicalSort(graph [][]int, deleteNodes []bool) {
-//	inDegree := make([]int, len(graph)) // 每个结点的入度
-//	inDegreeIsZero := make([]int, 0)    // 入度为0的结点
-//}
+func TopologicalSort(graph [][]int, deleteNodes []bool) {
+	var (
+		inDegree        = make([]int, len(graph)) // 每个结点的入度
+		topologicalSort = make([]int, 0)          // 入度为0的结点
+		abortSum        = 0
+	)
+
+	for node, children := range graph {
+		if deleteNodes[node] { // node has been deleted, continue
+			inDegree[node] = -1
+			abortSum += 1
+			continue
+		}
+		for _, child := range children {
+			if deleteNodes[child] { // node has been deleted, continue
+				continue
+			}
+			inDegree[child] += 1 // 孩子的入度+1
+		}
+	}
+
+	for {
+		var isHaveTopoNode = false
+		//fmt.Println(inDegree)
+		//fmt.Println(topologicalSort)
+		for node, degree := range inDegree {
+			if degree != 0 { // 还不能排序
+				continue
+			}
+			isHaveTopoNode = true
+			topologicalSort = append(topologicalSort, node)
+			inDegree[node] = -1
+
+			for _, child := range graph[node] {
+				if deleteNodes[child] { // node has been deleted, continue
+					continue
+				}
+				inDegree[child] -= 1 // 孩子的入度+1
+			}
+		}
+		if !isHaveTopoNode { // 已经没有入度为0的结点了
+			break
+		}
+	}
+
+	if len(graph)-abortSum == len(topologicalSort) {
+		fmt.Println("完美的拓扑排序！")
+	} else {
+		fmt.Println("你的环好像没有完全去掉诶！")
+	}
+}
 
 func isExistAddrInSlice(addresses []common.Address, address common.Address) bool {
 	for _, addr := range addresses {

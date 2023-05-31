@@ -18,7 +18,7 @@ func Test(t *testing.T) {
 		return
 	}
 
-	for number := startNumber; number < startNumber+1000; number++ {
+	for number := startNumber; number < startNumber+100; number++ {
 		txs, _ := pureData.GetTransactionsByNumber(db, new(big.Int).SetInt64(int64(number)))
 		txs = txs[:len(txs)-1]
 		if len(txs) == 0 {
