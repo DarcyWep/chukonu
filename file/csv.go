@@ -45,7 +45,7 @@ func NewWriteCSV(path string) *WriteCSV {
 	//OpenFile读取文件，不存在时则创建，使用追加模式
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
-		fmt.Println("文件打开失败！")
+		fmt.Println("文件打开失败！", err)
 		return nil
 	}
 	return &WriteCSV{

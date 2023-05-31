@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// average of Contract, CallSum, ExecutionTime in aborted tx or executed tx
-type average struct {
+// Average of Contract, CallSum, ExecutionTime in aborted tx or executed tx
+type Average struct {
 	txs     *[]*transaction.Transaction
 	isAbort []bool
 
@@ -24,12 +24,12 @@ type average struct {
 	callNumFactor       float64
 	executionTimeFactor float64
 
-	// not average
+	// not Average
 	abortRatio float64
 }
 
-func newAverage(txs *[]*transaction.Transaction, simulatedFunc func([]*transaction.Transaction) []bool) *average {
-	return &average{
+func NewAverage(txs *[]*transaction.Transaction, simulatedFunc func([]*transaction.Transaction) []bool) *Average {
+	return &Average{
 		txs:                  txs,
 		isAbort:              simulatedFunc(*txs),
 		abortedContract:      0,
@@ -45,12 +45,12 @@ func newAverage(txs *[]*transaction.Transaction, simulatedFunc func([]*transacti
 		callNumFactor:       0,
 		executionTimeFactor: 0,
 
-		// not average
+		// not Average
 		abortRatio: 0,
 	}
 }
 
-func (a *average) computingRelatedData() {
+func (a *Average) ComputingRelatedData() {
 	var abortedNum, executedNum, txSum = 0, 0, len(a.isAbort)
 	for i, tx := range *a.txs {
 		if a.isAbort[i] {
@@ -71,8 +71,8 @@ func (a *average) computingRelatedData() {
 	a.executionTimeFactor = (float64(a.abortedExecutionTime) / float64(a.executedExecutionTime)) + 0.005
 }
 
-func (a *average) wroteStrings() *[]string {
-	return &[]string{fmt.Sprintf("%.2f", a.abortRatio), fmt.Sprintf("%.2f", a.contractFactor),
+func (a *Average) WroteStrings() *[]string {
+	return &[]string{(*a.txs)[0].BlockNumber.String(), fmt.Sprintf("%.2f", a.abortRatio), fmt.Sprintf("%.2f", a.contractFactor),
 		fmt.Sprintf("%.2f", a.callNumFactor), fmt.Sprintf("%.2f", a.executionTimeFactor)}
 }
 

@@ -5,6 +5,7 @@ import (
 	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"chukonu/concurrency_control/conflict/nezha/core/tp"
 	"chukonu/concurrency_control/conflict/nezha/core/types"
+	"chukonu/setting"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"time"
 )
 
-const dbFile = "../data/Morph_Test3"
+//const dbFile = "../data/Morph_Test3"
 
 func Nezha(pureTxs []*transaction.Transaction) []bool {
 
@@ -24,8 +25,8 @@ func Nezha(pureTxs []*transaction.Transaction) []bool {
 	var ttxs = make(map[string][]*types.Transaction)
 	ttxs["0"] = createBatchTxs(pureTxs)
 
-	os.RemoveAll(dbFile)
-	statedb3, _ := state.NewState(dbFile, nil)
+	os.RemoveAll(setting.NezhaDB)
+	statedb3, _ := state.NewState(setting.NezhaDB, nil)
 	statedb3.BatchCreateObjects(ttxs)
 	_, abortHashes := runTestNezha(ttxs, statedb3)
 
