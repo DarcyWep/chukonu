@@ -26,10 +26,10 @@ func OpenLeveldb(path string) (*leveldb.DB, error) {
 
 // csv path, data of experiment will be saving in that
 const (
-	NezhaCsv            = "./data/nezha.csv"
-	ClassicCsv          = "./data/classic.csv"
-	OptimisticCsv       = "./data/optimistic.csv"
-	PresetOptimisticCsv = "./data/preset_optimistic.csv"
+	NezhaCsv            = "../data/nezha.csv"
+	ClassicCsv          = "../data/classic.csv"
+	OptimisticCsv       = "../data/optimistic.csv"
+	PresetOptimisticCsv = "../data/preset_optimistic.csv"
 
-	NezhaDB = "./data/Morph_Test3"
+	NezhaDB = "../data/Morph_Test3"
 )

@@ -42,22 +42,22 @@ func Test(t *testing.T) {
 			continue
 		}
 
-		nezhaAverage := newAverage(&txs, conflict.Nezha)
-		nezhaAverage.computingRelatedData()
+		nezhaAverage := NewAverage(&txs, conflict.Nezha)
+		nezhaAverage.ComputingRelatedData()
 
-		classicAverage := newAverage(&txs, classic.Classic)
-		classicAverage.computingRelatedData()
+		classicAverage := NewAverage(&txs, classic.Classic)
+		classicAverage.ComputingRelatedData()
 
-		optimisticAverage := newAverage(&txs, optimistic.Optimistic)
-		optimisticAverage.computingRelatedData()
+		optimisticAverage := NewAverage(&txs, optimistic.Optimistic)
+		optimisticAverage.ComputingRelatedData()
 
-		presetOptimisticAverage := newAverage(&txs, optimistic.PreSetOrderOptimistic)
-		presetOptimisticAverage.computingRelatedData()
+		presetOptimisticAverage := NewAverage(&txs, optimistic.PreSetOrderOptimistic)
+		presetOptimisticAverage.ComputingRelatedData()
 
-		nezhaCSV.Write(nezhaAverage.wroteStrings())
-		classicCSV.Write(classicAverage.wroteStrings())
-		optimisticCSV.Write(optimisticAverage.wroteStrings())
-		presetOptimisticCSV.Write(presetOptimisticAverage.wroteStrings())
+		nezhaCSV.Write(nezhaAverage.WroteStrings())
+		classicCSV.Write(classicAverage.WroteStrings())
+		optimisticCSV.Write(optimisticAverage.WroteStrings())
+		presetOptimisticCSV.Write(presetOptimisticAverage.WroteStrings())
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "finish block number", number)
 	}
 }

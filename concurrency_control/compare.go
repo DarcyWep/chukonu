@@ -65,10 +65,18 @@ func (a *Average) ComputingRelatedData() {
 			a.executedExecutionTime += tx.ExecutionTime
 		}
 	}
+	abortedAvgContract := float64(a.abortedContract) / float64(abortedNum)
+	abortedAvgCallNum := float64(a.abortedCallNum) / float64(abortedNum)
+	abortedAvgExecutionTime := float64(a.abortedExecutionTime) / float64(abortedNum)
+
+	executedAvgContract := float64(a.executedContract) / float64(executedNum)
+	executedAvgCallNum := float64(a.executedCallNum) / float64(executedNum)
+	executedAvgExecutionTime := float64(a.executedExecutionTime) / float64(executedNum)
+
 	a.abortRatio = (float64(abortedNum) / float64(txSum) * 100.0) + 0.005
-	a.contractFactor = (float64(a.abortedContract) / float64(a.executedContract)) + 0.005
-	a.callNumFactor = (float64(a.abortedCallNum) / float64(a.executedCallNum)) + 0.005
-	a.executionTimeFactor = (float64(a.abortedExecutionTime) / float64(a.executedExecutionTime)) + 0.005
+	a.contractFactor = (abortedAvgContract / executedAvgContract) + 0.005
+	a.callNumFactor = (abortedAvgCallNum / executedAvgCallNum) + 0.005
+	a.executionTimeFactor = (abortedAvgExecutionTime / executedAvgExecutionTime) + 0.005
 }
 
 func (a *Average) WroteStrings() *[]string {
