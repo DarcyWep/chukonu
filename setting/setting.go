@@ -12,7 +12,7 @@ const (
 	NativeDbPath = "/Users/darcywep/Projects/GoProjects/Morph/pureData/nativedb"
 
 	StartNumber = 12000001
-	SpanNumber  = 100
+	SpanNumber  = 50000
 )
 
 func OpenLeveldb(path string) (*leveldb.DB, error) {
@@ -33,3 +33,6 @@ const (
 
 	NezhaDB = "../data/Morph_Test3"
 )
+
+// OptimisticChanSize optimistic channel size
+const OptimisticChanSize = 1024

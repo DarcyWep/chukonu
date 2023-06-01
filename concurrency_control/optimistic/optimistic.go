@@ -1,13 +1,15 @@
 package optimistic
 
 import (
+	"chukonu/concurrency_control/conflict/nezha/core/state"
+	"chukonu/setting"
 	"github.com/DarcyWep/pureData/transaction"
 	"runtime"
 	"sync"
 	"time"
 )
 
-func Optimistic(txs []*transaction.Transaction) []bool {
+func Optimistic(txs []*transaction.Transaction, db *state.StateDB) []bool {
 	otxs := make(optimisticTxs, 0)
 	for _, tx := range txs {
 		otx := newOptimisticTx(*tx.Hash, tx.ExecutionTime, tx.Index)
@@ -21,8 +23,8 @@ func processOptimistic(otxs optimisticTxs, statedb *stateDB) []bool {
 	var (
 		proNum    = runtime.NumCPU()
 		proWg     sync.WaitGroup
-		proChan   chan *optimisticTx = make(chan *optimisticTx, 512)
-		abortChan chan *optimisticTx = make(chan *optimisticTx, 512)
+		proChan   chan *optimisticTx = make(chan *optimisticTx, setting.OptimisticChanSize)
+		abortChan chan *optimisticTx = make(chan *optimisticTx, setting.OptimisticChanSize)
 
 		mutex sync.RWMutex
 	)

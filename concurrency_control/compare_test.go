@@ -3,6 +3,7 @@ package concurrency_control
 import (
 	"chukonu/concurrency_control/conflict"
 	"chukonu/concurrency_control/conflict/classic"
+	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"chukonu/concurrency_control/optimistic"
 	"chukonu/file"
 	"chukonu/setting"
@@ -14,6 +15,9 @@ import (
 	"time"
 )
 
+// OptimisticChanSize optimistic channel size
+const OptimisticChanSize = 1024
+
 func Test(t *testing.T) {
 	db, err := setting.OpenLeveldb(setting.NativeDbPath) // get native transaction or merge transaction
 	defer db.Close()
@@ -21,6 +25,10 @@ func Test(t *testing.T) {
 		fmt.Println("open leveldb error,", err)
 		return
 	}
+	os.RemoveAll(setting.NezhaDB)
+	statedb, _ := state.NewState(setting.NezhaDB, nil)
+	dbNum := 0
+
 	os.Remove(setting.NezhaCsv)
 	os.Remove(setting.ClassicCsv)
 	os.Remove(setting.OptimisticCsv)
@@ -42,16 +50,16 @@ func Test(t *testing.T) {
 			continue
 		}
 
-		nezhaAverage := NewAverage(&txs, conflict.Nezha)
+		nezhaAverage := NewAverage(&txs, statedb, conflict.Nezha)
 		nezhaAverage.ComputingRelatedData()
 
-		classicAverage := NewAverage(&txs, classic.Classic)
+		classicAverage := NewAverage(&txs, nil, classic.Classic)
 		classicAverage.ComputingRelatedData()
 
-		optimisticAverage := NewAverage(&txs, optimistic.Optimistic)
+		optimisticAverage := NewAverage(&txs, nil, optimistic.Optimistic)
 		optimisticAverage.ComputingRelatedData()
 
-		presetOptimisticAverage := NewAverage(&txs, optimistic.PreSetOrderOptimistic)
+		presetOptimisticAverage := NewAverage(&txs, nil, optimistic.PreSetOrderOptimistic)
 		presetOptimisticAverage.ComputingRelatedData()
 
 		nezhaCSV.Write(nezhaAverage.WroteStrings())
@@ -59,5 +67,12 @@ func Test(t *testing.T) {
 		optimisticCSV.Write(optimisticAverage.WroteStrings())
 		presetOptimisticCSV.Write(presetOptimisticAverage.WroteStrings())
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "finish block number", number)
+
+		dbNum += 1
+		//if dbNum > 2000 {
+		//	os.RemoveAll(setting.NezhaDB)
+		//	statedb, _ = state.NewState(setting.NezhaDB, nil)
+		//	dbNum = 0
+		//}
 	}
 }

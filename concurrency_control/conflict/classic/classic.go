@@ -2,12 +2,13 @@ package classic
 
 import (
 	"chukonu/concurrency_control/conflict/nezha"
+	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func Classic(txs []*transaction.Transaction) []bool {
+func Classic(txs []*transaction.Transaction, db *state.StateDB) []bool {
 	cgtxs := make(classicGraphTxs, 0)
 	for _, tx := range txs {
 		cgtx := newClassicGraphTx(*tx.Hash, tx.ExecutionTime, tx.Index)

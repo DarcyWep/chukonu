@@ -1,6 +1,7 @@
 package concurrency_control
 
 import (
+	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"time"
@@ -28,10 +29,10 @@ type Average struct {
 	abortRatio float64
 }
 
-func NewAverage(txs *[]*transaction.Transaction, simulatedFunc func([]*transaction.Transaction) []bool) *Average {
+func NewAverage(txs *[]*transaction.Transaction, statedb *state.StateDB, simulatedFunc func([]*transaction.Transaction, *state.StateDB) []bool) *Average {
 	return &Average{
 		txs:                  txs,
-		isAbort:              simulatedFunc(*txs),
+		isAbort:              simulatedFunc(*txs, statedb),
 		abortedContract:      0,
 		abortedCallNum:       0,
 		abortedExecutionTime: 0,

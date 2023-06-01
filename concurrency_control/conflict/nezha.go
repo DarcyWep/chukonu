@@ -5,10 +5,8 @@ import (
 	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"chukonu/concurrency_control/conflict/nezha/core/tp"
 	"chukonu/concurrency_control/conflict/nezha/core/types"
-	"chukonu/setting"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
-	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -18,20 +16,18 @@ import (
 
 //const dbFile = "../data/Morph_Test3"
 
-func Nezha(pureTxs []*transaction.Transaction) []bool {
+func Nezha(pureTxs []*transaction.Transaction, statedb *state.StateDB) []bool {
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	var ttxs = make(map[string][]*types.Transaction)
 	ttxs["0"] = createBatchTxs(pureTxs)
 
-	os.RemoveAll(setting.NezhaDB)
-	statedb3, _ := state.NewState(setting.NezhaDB, nil)
-	statedb3.BatchCreateObjects(ttxs)
-	_, abortHashes := runTestNezha(ttxs, statedb3)
+	statedb.BatchCreateObjects(ttxs)
+	_, abortHashes := runTestNezha(ttxs, statedb)
 
 	//for i := 0; i < 5; i++ {
-	//	d := runTestNezha(ttxs, 1, statedb3)
+	//	d := runTestNezha(ttxs, 1, statedb)
 	//	sum3 += d
 	//}
 	//fmt.Printf("Average time of Nezha: %.2f\n", float64(sum3)/5)
