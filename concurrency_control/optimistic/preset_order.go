@@ -22,9 +22,8 @@ func PreSetOrderOptimistic(txs []*transaction.Transaction, db *state.StateDB) []
 }
 
 func initPresetVersion(otxs optimisticTxs) {
-	var (
-		address2OptimisticTxs = make(map[common.Address]optimisticTxs, 0)
-	)
+	var address2OptimisticTxs = make(map[common.Address]optimisticTxs, 0)
+
 	// 讲交易与地址对应
 	for _, otx := range otxs {
 		for addr, _ := range otx.allAddress {
@@ -37,7 +36,13 @@ func initPresetVersion(otxs optimisticTxs) {
 
 	for addr, newOtxs := range address2OptimisticTxs {
 		for i, otx := range newOtxs {
-			otx.presetVersion[addr] = i - 1
+			if i == 0 { // 等于0 时，所有的版本默认为-1
+				otx.presetVersion[addr] = i - 1
+				continue
+			}
+			if _, ok := newOtxs[i-1].writeAddress[addr]; ok { // 如果上个交易写了，则更改当前交易的版本
+				otx.presetVersion[addr] = i - 1
+			}
 		}
 	}
 }
@@ -74,25 +79,32 @@ func process(otxs optimisticTxs, statedb *stateDB) []bool {
 func executeTx(proCh, abortChan chan *optimisticTx, statedb *stateDB, wg *sync.WaitGroup, mutex *sync.RWMutex) {
 	defer wg.Done()
 	for otx := range proCh {
+		abort := false
+
 		mutex.RLock() // 读取所需的状态
 		for addr, _ := range otx.allAddress {
-			otx.allAddress[addr] = statedb.getState(addr)
+			read := statedb.getState(addr)
+			if read != otx.presetVersion[addr] { // 版本号对不上，直接丢弃
+				abort = true
+				break
+			}
+			otx.allAddress[addr] = read
 		}
 		mutex.RUnlock() // 读取所需的状态
 
-		time.Sleep(otx.executionTime) // 模拟执行
+		if !abort { // 交易未被丢弃，则执行交易
+			time.Sleep(otx.executionTime) // 模拟执行
 
-		abort := false
-		mutex.Lock() // 验证交易
-		for addr, value := range otx.allAddress {
-			value = otx.presetVersion[addr] // 有预设顺序的
-
-			abort = statedb.setState(addr, value, otx.index) // 无预设顺序
-			if abort {
-				break
+			mutex.Lock() // 验证交易
+			for addr, value := range otx.allAddress {
+				abort = statedb.setState(addr, value, otx.index) // 无预设顺序
+				if abort {
+					break
+				}
 			}
+			mutex.Unlock() // 验证交易
 		}
-		mutex.Unlock() // 验证交易
+
 		if abort {
 			abortChan <- otx
 		}

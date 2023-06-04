@@ -12,7 +12,7 @@ const (
 	NativeDbPath = "/Users/darcywep/Projects/GoProjects/Morph/pureData/nativedb"
 
 	StartNumber = 12000001
-	SpanNumber  = 50000
+	SpanNumber  = 100
 )
 
 func OpenLeveldb(path string) (*leveldb.DB, error) {
