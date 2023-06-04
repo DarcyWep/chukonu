@@ -2,6 +2,7 @@ package baseline
 
 import (
 	"chukonu/baseline/blockstm"
+	"chukonu/baseline/classic"
 	"chukonu/baseline/serial"
 	"chukonu/setting"
 	"fmt"
@@ -31,7 +32,8 @@ func Test(t *testing.T) {
 
 		blockStmTps := blockstm.BlockSTM(txs)
 		serialTps := serial.Serial(txs)
-		fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d, %.0f %.0f %.2fx\n", number, blockStmTps, serialTps, blockStmTps/serialTps)
+		classicTps := classic.Classic(txs)
+		fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d, %.0f %.0f %.0f %.2fx %.2fx\n", number, blockStmTps, classicTps, serialTps, blockStmTps/serialTps, classicTps/serialTps)
 		//break
 	}
 }
