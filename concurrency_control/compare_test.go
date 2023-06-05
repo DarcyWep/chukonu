@@ -75,4 +75,9 @@ func Test(t *testing.T) {
 		//	dbNum = 0
 		//}
 	}
+
+	nezhaCSV.Close()
+	classicCSV.Close()
+	optimisticCSV.Close()
+	presetOptimisticCSV.Close()
 }

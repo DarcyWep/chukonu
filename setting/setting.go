@@ -12,7 +12,7 @@ const (
 	NativeDbPath = "/Users/darcywep/Projects/GoProjects/Morph/pureData/nativedb"
 
 	StartNumber = 12000001
-	SpanNumber  = 100
+	SpanNumber  = 50000
 )
 
 func OpenLeveldb(path string) (*leveldb.DB, error) {
@@ -30,6 +30,8 @@ const (
 	ClassicCsv          = "../data/classic.csv"
 	OptimisticCsv       = "../data/optimistic.csv"
 	PresetOptimisticCsv = "../data/preset_optimistic.csv"
+
+	TpsCsv = "../data/tps.csv"
 
 	NezhaDB = "../data/Morph_Test3"
 )
