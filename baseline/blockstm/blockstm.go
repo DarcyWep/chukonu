@@ -1,6 +1,7 @@
 package blockstm
 
 import (
+	"chukonu/concurrency_control/optimistic"
 	"chukonu/setting"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
@@ -16,7 +17,8 @@ func BlockSTM(txs []*transaction.Transaction) float64 {
 		btx.generateReadAndWrite(tx)
 		btxs = append(btxs, btx)
 	}
-	return float64(len(btxs)) / process(btxs, newStateDB()).Seconds()
+	deleteTxs := optimistic.PreSetOrderOptimistic(txs, nil)
+	return float64(len(btxs)) / process(btxs, newStateDB(), &deleteTxs).Seconds()
 }
 
 func initPresetVersion(btxs blockStmTxs) {
@@ -89,7 +91,8 @@ func initPresetVersion(btxs blockStmTxs) {
 	//fmt.Println(first)
 }
 
-func process(btxs blockStmTxs, statedb *stateDB) time.Duration {
+func process(btxs blockStmTxs, statedb *stateDB, deleteTxs *[]bool) time.Duration {
+	startTime := time.Now()
 	initPresetVersion(btxs) // 预定的顺序
 
 	var (
@@ -100,11 +103,10 @@ func process(btxs blockStmTxs, statedb *stateDB) time.Duration {
 
 		mutex sync.RWMutex
 	)
-	startTime := time.Now()
 	runtime.GOMAXPROCS(proNum)
 	proWg.Add(proNum)
 	for i := 0; i < proNum; i++ {
-		go executeTx(proChan, closeChan, statedb, &btxs, &proWg, &mutex)
+		go executeTx(proChan, closeChan, statedb, &btxs, &proWg, &mutex, deleteTxs)
 	}
 
 	for _, btx := range btxs {
@@ -116,7 +118,7 @@ func process(btxs blockStmTxs, statedb *stateDB) time.Duration {
 	return time.Since(startTime)
 }
 
-func executeTx(proCh chan *blockStmTx, closeChan chan struct{}, statedb *stateDB, btxs *blockStmTxs, wg *sync.WaitGroup, mutex *sync.RWMutex) {
+func executeTx(proCh chan *blockStmTx, closeChan chan struct{}, statedb *stateDB, btxs *blockStmTxs, wg *sync.WaitGroup, mutex *sync.RWMutex, deleteTxs *[]bool) {
 	defer wg.Done()
 	for btx := range proCh {
 		abort := false
@@ -169,6 +171,9 @@ func executeTx(proCh chan *blockStmTx, closeChan chan struct{}, statedb *stateDB
 				}
 			}
 			mutex.Unlock() // 验证交易
+		} else if (*deleteTxs)[btx.index] {
+			//time.Sleep(btx.tx.ExecutionTime / 10 * 4) // 模拟执行，因为可能是执行过程中的丢弃
+			time.Sleep(btx.tx.ExecutionTime / 4) // 模拟执行，因为可能是执行过程中的丢弃
 		}
 
 		if abort {

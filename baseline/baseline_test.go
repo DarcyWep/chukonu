@@ -2,7 +2,9 @@ package baseline
 
 import (
 	"chukonu/baseline/blockstm"
+	"chukonu/baseline/chukonu"
 	"chukonu/baseline/classic"
+	"chukonu/baseline/peep"
 	"chukonu/baseline/serial"
 	"chukonu/file"
 	"chukonu/setting"
@@ -28,7 +30,7 @@ func Test(t *testing.T) {
 	os.Remove(setting.TpsCsv)
 	var tpsCSV = file.NewWriteCSV(setting.TpsCsv)
 	defer tpsCSV.Close()
-	tpsCSV.Write(&[]string{"block number", "block stm tps", "classic graph tps", "serial tps", "block stm speed up", "classic graph speed up"})
+	tpsCSV.Write(&[]string{"block number", "block stm tps", "classic graph tps", "chukonu tps", "peep tps", "serial tps", "block stm speed up", "peep speed up", "classic graph speed up", "chukonu speed up"})
 
 	for number := setting.StartNumber; number < setting.StartNumber+setting.SpanNumber; number++ {
 		txs, _ := pureData.GetTransactionsByNumber(db, new(big.Int).SetInt64(int64(number)))
@@ -39,12 +41,19 @@ func Test(t *testing.T) {
 
 		blockStmTps := blockstm.BlockSTM(txs)
 		classicTps := classic.Classic(txs)
+		chuKoNuTps := chukonu.ChuKoNu(txs)
+		peepTps := peep.Peep(txs)
 		serialTps := serial.Serial(txs)
 		wStr := []string{(txs)[0].BlockNumber.String(), fmt.Sprintf("%.0f", blockStmTps+0.5),
-			fmt.Sprintf("%.0f", classicTps+0.5), fmt.Sprintf("%.0f", serialTps+0.5),
-			fmt.Sprintf("%.2f", blockStmTps/serialTps+0.005), fmt.Sprintf("%.2f", classicTps/serialTps+0.005)}
+			fmt.Sprintf("%.0f", classicTps+0.5), fmt.Sprintf("%.0f", chuKoNuTps+0.5),
+			fmt.Sprintf("%.0f", peepTps+0.5), fmt.Sprintf("%.0f", serialTps+0.5),
+			fmt.Sprintf("%.2f", blockStmTps/serialTps+0.005),
+			fmt.Sprintf("%.2f", peepTps/serialTps+0.005),
+			fmt.Sprintf("%.2f", classicTps/serialTps+0.005),
+			fmt.Sprintf("%.2f", chuKoNuTps/serialTps+0.005)}
 		tpsCSV.Write(&wStr)
 
+		//fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d, %s\n", number, wStr)
 		fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d\n", number)
 		//break
 	}
