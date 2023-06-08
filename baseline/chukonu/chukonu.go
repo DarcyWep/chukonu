@@ -170,7 +170,6 @@ func executionTxs(execCh executionChan, disCh distributeChan, closeCh closeChan,
 			}
 		}
 	}
-
 }
 
 func closeChuKoNu(closeCh closeChan, disCh distributeChan, checkCh *[]checkChan, execCh executionChan, queueLen int, wg *sync.WaitGroup, num int) {

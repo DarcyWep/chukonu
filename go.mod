@@ -3,7 +3,7 @@ module chukonu
 go 1.19
 
 require (
-	github.com/DarcyWep/pureData v0.0.0-20230516075532-d3c162d11b5c
+	github.com/DarcyWep/pureData v1.2.2
 	github.com/ethereum/go-ethereum v1.11.5
 	github.com/nanmu42/etherscan-api v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7

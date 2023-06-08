@@ -7,12 +7,13 @@ import (
 
 // read data from Native DB
 const (
-	MinCache     = 2048
-	MinHandles   = 2048
-	NativeDbPath = "/Users/darcywep/Projects/GoProjects/Morph/pureData/nativedb"
+	MinCache        = 2048
+	MinHandles      = 2048
+	NativeDbPath    = "/Users/darcywep/Projects/GoProjects/Morph/pureData/nativedb"
+	NewNativeDbPath = "../data/newnativedb"
 
 	StartNumber = 12000001
-	SpanNumber  = 100
+	SpanNumber  = 50000
 )
 
 func OpenLeveldb(path string) (*leveldb.DB, error) {
@@ -38,3 +39,10 @@ const (
 
 // OptimisticChanSize optimistic channel size
 const OptimisticChanSize = 1024
+
+// etherscan setting
+const (
+	ApiKey                = "TUIJUUD9JQ4VEDS97DHTQ3V13V2R8KFEEF" // wep
+	ContractLeveldb       = "../data/contract"
+	AllContractAddressKey = "all_contract_addresses"
+)

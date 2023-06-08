@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const chanSize = 1024
+const chanSize = 2048
 
 var ProNum = 8
 
