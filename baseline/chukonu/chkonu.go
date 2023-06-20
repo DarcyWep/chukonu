@@ -8,22 +8,6 @@ import (
 	"time"
 )
 
-const chanSize = 1024
-
-type distributeMap map[common.Address]chukonuTxs
-type distributeChan chan *depQueue
-type checkChan chan *depQueue
-type executionChan chan *[]*depQueue
-type closeChan chan bool
-
-type depQueue struct {
-	depAddr    common.Address //所依赖的地址
-	pendingTxs *chukonuTxs    // 该地址等待执行的队列
-	canExec    bool           // 队首依赖是否可以执行
-	index      int            // 当前执行的交易在pending中的下标
-	len        int            // pending的总长度
-}
-
 func ChuKoNu(txs []*transaction.Transaction) float64 {
 	ctxs := make(chukonuTxs, 0)
 	for _, tx := range txs {
@@ -53,24 +37,24 @@ func ChuKoNu(txs []*transaction.Transaction) float64 {
 	startTime := time.Now()
 	disWg.Add(disNum)
 	for i := 0; i < disNum; i++ {
-		go distributeTxs(disCh, &checkCh, &disWg, checkNum)
+		go chukonuDistributeTxs(disCh, &checkCh, &disWg, checkNum)
 	}
 
 	checkWg.Add(checkNum) //并发: Cpu核数=并发线程数
 	for i := 0; i < checkNum; i++ {
 		checkCh[i] = make(checkChan, chanSize/checkNum+1)
-		go checkTxs(checkCh[i], execCh, &checkWg)
+		go chukonuCheckTxs(checkCh[i], execCh, &checkWg)
 	}
 
 	execWg.Add(execNum)
 	for i := 0; i < execNum; i++ {
-		go executionTxs(execCh, disCh, closeCh, &execWg)
+		go chukonuExecutionTxs(execCh, disCh, closeCh, &execWg)
 	}
 
-	queueLen := constructionOrder(&ctxs, disCh) // 依赖队列的长度
+	queueLen := chukonuConstructionOrder(&ctxs, disCh) // 依赖队列的长度
 
 	closeWg.Add(1)
-	go closeChuKoNu(closeCh, disCh, &checkCh, execCh, queueLen, &closeWg, checkNum)
+	go chukonuCloseChuKoNu(closeCh, disCh, &checkCh, execCh, queueLen, &closeWg, checkNum)
 
 	closeWg.Wait()
 	disWg.Wait()
@@ -79,7 +63,7 @@ func ChuKoNu(txs []*transaction.Transaction) float64 {
 	return float64(len(txs)) / time.Since(startTime).Seconds()
 }
 
-func constructionOrder(ctxs *chukonuTxs, disCh distributeChan) int {
+func chukonuConstructionOrder(ctxs *chukonuTxs, disCh distributeChan) int {
 	seQueue := make(distributeMap)
 
 	// 	地址对应的队列
@@ -119,7 +103,7 @@ func constructionOrder(ctxs *chukonuTxs, disCh distributeChan) int {
 	//return len(seQueue)
 }
 
-func distributeTxs(disCh distributeChan, checkCh *[]checkChan, wg *sync.WaitGroup, num int) {
+func chukonuDistributeTxs(disCh distributeChan, checkCh *[]checkChan, wg *sync.WaitGroup, num int) {
 	defer wg.Done()
 	for queue := range disCh {
 		tx := (*queue.pendingTxs)[queue.index] // queue.index 当前可执行的交易下标，递增
@@ -129,7 +113,7 @@ func distributeTxs(disCh distributeChan, checkCh *[]checkChan, wg *sync.WaitGrou
 	}
 }
 
-func checkTxs(checkCh checkChan, execCh executionChan, wg *sync.WaitGroup) {
+func chukonuCheckTxs(checkCh checkChan, execCh executionChan, wg *sync.WaitGroup) {
 	wg.Done()
 	queueByAddr := make(map[common.Hash][]*depQueue)
 	for queue := range checkCh {
@@ -150,13 +134,19 @@ func checkTxs(checkCh checkChan, execCh executionChan, wg *sync.WaitGroup) {
 	}
 }
 
-func executionTxs(execCh executionChan, disCh distributeChan, closeCh closeChan, wg *sync.WaitGroup) {
+func chukonuExecutionTxs(execCh executionChan, disCh distributeChan, closeCh closeChan, wg *sync.WaitGroup) {
 	wg.Done()
 	for depQ := range execCh {
 		q0 := (*depQ)[0]
 		tx := (*q0.pendingTxs)[q0.index]
 
-		time.Sleep(tx.tx.ExecutionTime)
+		//time.Sleep(tx.tx.ExecutionTime)
+
+		if tx.isOpt {
+			time.Sleep(tx.optExecutedTime)
+		} else {
+			time.Sleep(tx.tx.ExecutionTime)
+		}
 
 		// 执行完成，处理剩余的待处理队列
 		for _, q := range *depQ {
@@ -172,7 +162,7 @@ func executionTxs(execCh executionChan, disCh distributeChan, closeCh closeChan,
 	}
 }
 
-func closeChuKoNu(closeCh closeChan, disCh distributeChan, checkCh *[]checkChan, execCh executionChan, queueLen int, wg *sync.WaitGroup, num int) {
+func chukonuCloseChuKoNu(closeCh closeChan, disCh distributeChan, checkCh *[]checkChan, execCh executionChan, queueLen int, wg *sync.WaitGroup, num int) {
 	defer wg.Done()
 	var finishNum = 0
 	for _ = range closeCh {

@@ -109,11 +109,11 @@ func SaveContractAddressesToDB(contracts *map[common.Address]struct{}) {
 	}
 }
 
-func GetAllContractAddressesSlice() *[]common.Address {
+func GetAllContractAddressesSlice(key string) *[]common.Address {
 	contractdb, _ := openLeveldb(setting.ContractLeveldb, true)
 	defer contractdb.Close()
 
-	value, _ := contractdb.Get([]byte(setting.AllContractAddressKey), nil)
+	value, _ := contractdb.Get([]byte(key), nil)
 	contractStringSlice := strings.Split(string(value), " ")
 	contractSlice := make([]common.Address, 0)
 	for _, addrStr := range contractStringSlice {
@@ -143,7 +143,7 @@ func SaveContractABI(abiChan chan *abiInfo, db *leveldb.DB, wg *sync.WaitGroup) 
 	for abi := range abiChan {
 		batch.Put([]byte(abi.address), abi.abi)
 
-		if abi.index%100 == 0 || abi.index == 86231 { // 最多有86232个合约地址
+		if abi.index%100 == 0 || abi.index == 35058 { // 最多有86232个合约地址
 			err := db.Write(batch, nil)
 			if err != nil {
 				fmt.Println("Failed to store contract abi, address is "+abi.address+", error is", err)
@@ -151,6 +151,18 @@ func SaveContractABI(abiChan chan *abiInfo, db *leveldb.DB, wg *sync.WaitGroup) 
 				fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish contract index %d\n", abi.index)
 			}
 			batch.Reset()
+		}
+	}
+}
+
+func getAbiFromDB(abiChan chan *abiInfo, addrChan chan common.Address, db *leveldb.DB, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for addr := range addrChan {
+		_, err := db.Get([]byte(addr.String()), nil)
+
+		if err == nil {
+			continue
 		}
 	}
 }

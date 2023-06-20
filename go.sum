@@ -4,6 +4,8 @@ github.com/DarcyWep/pureData v1.2.1 h1:w5Ir7D+5HWFRZyVBAr3hsJMRgaDZ214UgnCIe4Zdm
 github.com/DarcyWep/pureData v1.2.1/go.mod h1:zNcd7TUQISeLKfm2Cryf0buVDIEkFuTKm4uSf+FTdpo=
 github.com/DarcyWep/pureData v1.2.2 h1:YZP7cdVUh9MRSnlFas4DGTUOQe9YZCyn/ZbTyXlPfR8=
 github.com/DarcyWep/pureData v1.2.2/go.mod h1:zNcd7TUQISeLKfm2Cryf0buVDIEkFuTKm4uSf+FTdpo=
+github.com/DarcyWep/pureData v1.2.3 h1:lS6kWkVXvmtCV+o3aUPerZOgxl8OW0HfE3NtNH3Chpk=
+github.com/DarcyWep/pureData v1.2.3/go.mod h1:zNcd7TUQISeLKfm2Cryf0buVDIEkFuTKm4uSf+FTdpo=
 github.com/btcsuite/btcd/btcec/v2 v2.2.0 h1:fzn1qaOt32TuLjFlkzYSsBC35Q3KUjT1SwPxiMSCF5k=
 github.com/btcsuite/btcd/btcec/v2 v2.2.0/go.mod h1:U7MHm051Al6XmscBQ0BoNydpOTsFAn707034b5nY8zU=
 github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1 h1:q0rUy8C/TYNBQS1+CGKw68tLOFYSNEs0TFnxxnS9+4U=

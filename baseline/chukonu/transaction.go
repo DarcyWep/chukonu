@@ -1,17 +1,21 @@
 package chukonu
 
 import (
+	"chukonu/setting"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
+	"time"
 )
 
 type chukonuTxs []*chukonuTx
 
 type chukonuTx struct {
-	hash          common.Hash
-	tx            *transaction.Transaction
-	readAddresses map[common.Address]int // address -> version
-	writeAddress  map[common.Address]int // address -> version
+	hash            common.Hash
+	tx              *transaction.Transaction
+	isOpt           bool
+	optExecutedTime time.Duration
+	readAddresses   map[common.Address]int // address -> version
+	writeAddress    map[common.Address]int // address -> version
 
 	allAddress map[common.Address]int
 	accessSum  int
@@ -19,13 +23,36 @@ type chukonuTx struct {
 }
 
 func newChuKoNuTx(tx *transaction.Transaction) *chukonuTx {
+	var (
+		isOpt           bool = false
+		optExecutedTime      = time.Duration(0)
+	)
+	if !tx.Contract { // 普通转账交易
+		isOpt = true
+		optExecutedTime = generateOptExecutedTime(tx)
+	} else if tx.Contract && tx.To != nil { // 如果是智能合约操作，且不为合约创建
+		if len(tx.Input) < 4 {
+			isOpt = true
+			optExecutedTime = generateOptExecutedTime(tx)
+		} else if common.Bytes2Hex(tx.Input[:4]) == setting.TransferKey || common.Bytes2Hex(tx.Input[:4]) == setting.ApproveKey {
+			isOpt = true
+			optExecutedTime = generateOptExecutedTime(tx)
+		}
+	}
+	//if isOpt {
+	//	fmt.Println(optExecutedTime)
+	//	fmt.Println(tx.ExecutionTime)
+	//	fmt.Println()
+	//}
 	return &chukonuTx{
-		hash:          *tx.Hash,
-		tx:            tx,
-		readAddresses: make(map[common.Address]int),
-		writeAddress:  make(map[common.Address]int),
-		allAddress:    make(map[common.Address]int),
-		index:         int(tx.Index.Int64()),
+		hash:            *tx.Hash,
+		tx:              tx,
+		isOpt:           isOpt,
+		optExecutedTime: optExecutedTime,
+		readAddresses:   make(map[common.Address]int),
+		writeAddress:    make(map[common.Address]int),
+		allAddress:      make(map[common.Address]int),
+		index:           int(tx.Index.Int64()),
 	}
 }
 
@@ -85,6 +112,19 @@ func (otx *chukonuTx) storageTransitionAddress(trs []*transaction.StorageTransit
 			//fmt.Println("only read address: " + addr.Hex() + ", the tx hash is " + otx.hash.Hex())
 		}
 	}
+}
+
+func generateOptExecutedTime(tx *transaction.Transaction) time.Duration {
+	startTime := time.Now()
+	var a, b, c int
+	a, b, c = 666666, 666666, 666666
+	for _, _ = range tx.Transfers {
+		a += b
+		b += a
+		c += a
+		//time.Sleep(time.Nanosecond)
+	}
+	return time.Since(startTime)
 }
 
 func addAddress2Map(m *map[common.Address]int, addr common.Address) {
