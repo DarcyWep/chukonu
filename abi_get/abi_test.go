@@ -1,13 +1,12 @@
 package abi_get
 
 import (
-	"chukonu/file"
 	"chukonu/setting"
+	"encoding/json"
 	"fmt"
 	"github.com/DarcyWep/pureData"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -196,69 +195,69 @@ func TestTransactionCategories(t *testing.T) {
 	newNativeDB, _ := openLeveldb(setting.NewNativeDbPath, false)
 	defer newNativeDB.Close()
 
-	os.Remove(setting.TxCategoriesCsv)
-	var txCategoriesCSV = file.NewWriteCSV(setting.TxCategoriesCsv)
-	defer txCategoriesCSV.Close()
-	txCategoriesCSV.Write(&[]string{"block number", "txs sum", "ordinary transfer", "erc transfer", "erc approve", "internal num", "other", "optimisable ratio", "other ratio"})
-
-	for number := setting.StartNumber; number < setting.StartNumber+setting.SpanNumber; number++ {
-		txs, _ := pureData.GetTransactionsByNumber(blockDB, new(big.Int).SetInt64(int64(number)))
-		txs = txs[:len(txs)-1]
-		if len(txs) == 0 {
-			continue
-		}
-		ordinaryTransferNum, ercTransferNum, ercApproveNum, internalTxNum, other := 0, 0, 0, 0, 0
-		for _, tx := range txs {
-			// 普通转账
-			if !tx.Contract {
-				ordinaryTransferNum += 1
-				continue
-			}
-			// 合约创建 或者是
-			if tx.Contract && tx.To == nil {
-				other += 1
-				if len(tx.Input) < 4 {
-					fmt.Println(tx.Hash)
-				}
-				continue
-			}
-			// 产生内部交易 (无参数合约调用)
-			if tx.Contract && len(tx.Input) < 4 {
-				internalTxNum += 1
-				//fmt.Println(tx.Hash)
-				continue
-			}
-
-			if tx.Contract && common.Bytes2Hex(tx.Input[:4]) == setting.TransferKey {
-				ercTransferNum += 1
-				continue
-			}
-			if tx.Contract && common.Bytes2Hex(tx.Input[:4]) == setting.ApproveKey {
-				ercApproveNum += 1
-				continue
-			}
-			other += 1 // 其他合约
-		}
-		//fmt.Println(len(txs), ordinaryTransferNum, ercTransferNum, ercApproveNum, internalTxNum, other)
-		otherRatio := (float64(other) / float64(len(txs))) * 100
-		wStr := []string{(txs)[0].BlockNumber.String(), fmt.Sprintf("%d", len(txs)),
-			fmt.Sprintf("%d", ordinaryTransferNum), fmt.Sprintf("%d", ercTransferNum),
-			fmt.Sprintf("%d", ercApproveNum), fmt.Sprintf("%d", internalTxNum),
-			fmt.Sprintf("%d", other), fmt.Sprintf("%.2f", 100-otherRatio),
-			fmt.Sprintf("%.2f", otherRatio)}
-		txCategoriesCSV.Write(&wStr)
-
-		//fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d, %s\n", number, wStr)
-		fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d\n", number)
-	}
-
-	//funcBytes, _ := contractDB.Get([]byte(setting.SortFunctionsKey), nil)
-	//funcs := make([]*Function, 0)
-	//json.Unmarshal(funcBytes, &funcs)
-	//funcs = funcs[:100]
-	//for _, fu := range funcs {
-	//	fmt.Println(fu.Sign, fu.Name, fu.CallNum)
+	//os.Remove(setting.TxCategoriesCsv)
+	//var txCategoriesCSV = file.NewWriteCSV(setting.TxCategoriesCsv)
+	//defer txCategoriesCSV.Close()
+	//txCategoriesCSV.Write(&[]string{"block number", "txs sum", "ordinary transfer", "erc transfer", "erc approve", "internal num", "other", "optimisable ratio", "other ratio"})
+	//
+	//for number := setting.StartNumber; number < setting.StartNumber+setting.SpanNumber; number++ {
+	//	txs, _ := pureData.GetTransactionsByNumber(blockDB, new(big.Int).SetInt64(int64(number)))
+	//	txs = txs[:len(txs)-1]
+	//	if len(txs) == 0 {
+	//		continue
+	//	}
+	//	ordinaryTransferNum, ercTransferNum, ercApproveNum, internalTxNum, other := 0, 0, 0, 0, 0
+	//	for _, tx := range txs {
+	//		// 普通转账
+	//		if !tx.Contract {
+	//			ordinaryTransferNum += 1
+	//			continue
+	//		}
+	//		// 合约创建 或者是
+	//		if tx.Contract && tx.To == nil {
+	//			other += 1
+	//			if len(tx.Input) < 4 {
+	//				fmt.Println(tx.Hash)
+	//			}
+	//			continue
+	//		}
+	//		// 产生内部交易 (无参数合约调用)
+	//		if tx.Contract && len(tx.Input) < 4 {
+	//			internalTxNum += 1
+	//			//fmt.Println(tx.Hash)
+	//			continue
+	//		}
+	//
+	//		if tx.Contract && common.Bytes2Hex(tx.Input[:4]) == setting.TransferKey {
+	//			ercTransferNum += 1
+	//			continue
+	//		}
+	//		if tx.Contract && common.Bytes2Hex(tx.Input[:4]) == setting.ApproveKey {
+	//			ercApproveNum += 1
+	//			continue
+	//		}
+	//		other += 1 // 其他合约
+	//	}
+	//	//fmt.Println(len(txs), ordinaryTransferNum, ercTransferNum, ercApproveNum, internalTxNum, other)
+	//	otherRatio := (float64(other) / float64(len(txs))) * 100
+	//	wStr := []string{(txs)[0].BlockNumber.String(), fmt.Sprintf("%d", len(txs)),
+	//		fmt.Sprintf("%d", ordinaryTransferNum), fmt.Sprintf("%d", ercTransferNum),
+	//		fmt.Sprintf("%d", ercApproveNum), fmt.Sprintf("%d", internalTxNum),
+	//		fmt.Sprintf("%d", other), fmt.Sprintf("%.2f", 100-otherRatio),
+	//		fmt.Sprintf("%.2f", otherRatio)}
+	//	txCategoriesCSV.Write(&wStr)
+	//
+	//	//fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d, %s\n", number, wStr)
+	//	fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d\n", number)
 	//}
+
+	funcBytes, _ := contractDB.Get([]byte(setting.SortFunctionsKey), nil)
+	funcs := make([]*Function, 0)
+	json.Unmarshal(funcBytes, &funcs)
+	funcs = funcs[:100]
+	for _, fu := range funcs {
+		fmt.Println(fu.Sign, fu.Name, fu.CallNum)
+	}
 
 	//contractBytes, _ := contractDB.Get([]byte(setting.SortContractsKey), nil)
 	//contracts := make([]*Contract, 0)

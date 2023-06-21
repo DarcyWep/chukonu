@@ -14,7 +14,7 @@ const (
 
 	StartNumber = 12000001
 	//StartNumber = 12048500
-	SpanNumber = 50000
+	SpanNumber = 1
 )
 
 func OpenLeveldb(path string) (*leveldb.DB, error) {

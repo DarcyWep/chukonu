@@ -96,3 +96,22 @@ func TestChuKoNuTransferOpt(t *testing.T) {
 		fmt.Printf("["+time.Now().Format("2006-01-02 15:04:05")+"]"+" finish block number %d\n", number)
 	}
 }
+
+func TestConflictChain(t *testing.T) {
+	db, err := setting.OpenLeveldb(setting.NewNativeDbPath) // get native transaction or merge transaction
+	defer db.Close()
+	if err != nil {
+		fmt.Println("open leveldb error,", err)
+		return
+	}
+
+	for number := setting.StartNumber; number < setting.StartNumber+setting.SpanNumber; number++ {
+		txs, _ := pureData.GetTransactionsByNumber(db, new(big.Int).SetInt64(int64(number)))
+		txs = txs[:len(txs)-1]
+		if len(txs) == 0 {
+			continue
+		}
+
+		chukonu.ConflictChain(txs)
+	}
+}
