@@ -32,3 +32,14 @@ type StateAccount struct {
 	Root     common.Hash // merkle root of the storage trie
 	CodeHash []byte
 }
+
+func (sa StateAccount) Copy() StateAccount {
+	return StateAccount{
+		Nonce:    sa.Nonce,
+		Balance:  new(big.Int).Set(sa.Balance),
+		Root:     sa.Root,
+		CodeHash: common.CopyBytes(sa.CodeHash),
+	}
+}
+
+//s
