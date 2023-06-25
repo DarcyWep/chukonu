@@ -191,11 +191,16 @@ func (s *StmTransaction) GetCodeHash(addr common.Address) common.Hash {
 
 // GetState retrieves a value from the given account's storage trie.
 func (s *StmTransaction) GetState(addr common.Address, hash common.Hash) common.Hash {
+	var stateHash common.Hash = common.Hash{}
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
-		return stmTxStateObject.GetState(hash)
+		//return stmTxStateObject.GetState(hash)
+		stateHash = stmTxStateObject.GetState(hash)
 	}
-	return common.Hash{}
+	//if s.Index == 11 {
+	//	fmt.Println(addr, hash, stateHash)
+	//}
+	return stateHash
 }
 
 // GetCommittedState retrieves a value from the given account's committed storage trie.

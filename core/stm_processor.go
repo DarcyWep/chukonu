@@ -64,8 +64,8 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
-		root := stmStateDB.IntermediateRoot(true)
-		fmt.Println(i, root)
+		//root := stmStateDB.IntermediateRoot(true, i)
+		//fmt.Println(i, root)
 	}
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
@@ -75,7 +75,7 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	stmAccumulateRewards(p.config, stmStateDB, header, block.Uncles())
 
-	root := stmStateDB.IntermediateRoot(p.config.IsEIP158(header.Number))
+	root := stmStateDB.IntermediateRoot(p.config.IsEIP158(header.Number), -1)
 	return &root, receipts, allLogs, *usedGas, nil
 }
 
@@ -94,9 +94,9 @@ func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, 
 	statedb.Validation(true)
 	var root []byte
 	if config.IsByzantium(blockNumber) {
-		stmStateDB.Finalise(true)
+		stmStateDB.Finalise(true, statedb.Index)
 	} else {
-		root = stmStateDB.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
+		root = stmStateDB.IntermediateRoot(config.IsEIP158(blockNumber), statedb.Index).Bytes()
 	}
 	*usedGas += result.UsedGas
 

@@ -140,6 +140,7 @@ func (s *StmStateDB) GetState(addr common.Address, hash common.Hash, txIndex, tx
 		return &sslot
 	}
 	return nil
+	//return &SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}
 }
 
 //func (s *StmStateDB) SetState(addr common.Address, key, value common.Hash) {
@@ -257,13 +258,19 @@ func (s *StmStateDB) deleteStateObject(obj *stmStateObject) {
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
-func (s *StmStateDB) Finalise(deleteEmptyObjects bool) {
+func (s *StmStateDB) Finalise(deleteEmptyObjects bool, txIndex int) {
 	addressesToPrefetch := make([][]byte, 0)
 	//for addr := range s.journal.dirties {
 	// 如果 object 中 data的 len 超过1, 或者 data的长度为1时，txIndex 或 Incarnation 不为1
 	for addr, obj := range s.stateObjects { // 只有被修改了，才进入此循环
-		if obj.data.len == 1 && obj.data.StateAccount[0].TxInfo.Index == -1 {
+		//if txIndex == 11 && addr == common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7") {
+		//	fmt.Println("len(obj.dirtyStorage):", len(obj.dirtyStorage))
+		//}
+		if obj.data.len == 1 && obj.data.StateAccount[0].TxInfo.Index == -1 && len(obj.dirtyStorage) == 0 {
 			// 如果长度为1，且是从leveldb中读取到的(index = -1), 则非经过修改的结点
+			//if txIndex == 11 && addr == common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7") {
+			//	fmt.Println("len(obj.dirtyStorage):", len(obj.dirtyStorage))
+			//}
 			continue
 		}
 		//fmt.Println(addr)
@@ -284,7 +291,7 @@ func (s *StmStateDB) Finalise(deleteEmptyObjects bool) {
 				delete(s.snapStorage, obj.addrHash)  // Clear out any previously updated storage data (may be recreated via a resurrect)
 			}
 		} else {
-			obj.finalise(true) // Prefetch slots in the background
+			obj.finalise(true, txIndex) // Prefetch slots in the background
 		}
 		s.stateObjectsPending[addr] = struct{}{}
 		s.stateObjectsDirty[addr] = struct{}{}
@@ -302,9 +309,9 @@ func (s *StmStateDB) Finalise(deleteEmptyObjects bool) {
 // IntermediateRoot computes the current root hash of the state trie.
 // It is called in between transactions to get the root hash that
 // goes into transaction receipts.
-func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
+func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool, txIndex int) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
-	s.Finalise(deleteEmptyObjects)
+	s.Finalise(deleteEmptyObjects, txIndex)
 
 	// If there was a trie prefetcher operating, it gets aborted and irrevocably
 	// modified after we start retrieving tries. Remove it from the statedb after
@@ -369,7 +376,7 @@ func (s *StmStateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		return common.Hash{}, fmt.Errorf("commit aborted due to earlier error: %v", s.dbErr)
 	}
 	// Finalize any pending changes and merge everything into the tries
-	s.IntermediateRoot(deleteEmptyObjects)
+	s.IntermediateRoot(deleteEmptyObjects, -1)
 
 	// Commit objects to the trie, measuring the elapsed time
 	var (
@@ -523,16 +530,27 @@ func (s *StmStateDB) Validation(valObjects map[common.Address]*stmTxStateObject,
 		}
 
 		for key, value := range txObj.dirtyStorage {
+			//if txIndex == 11 {
+			//	fmt.Println(txIndex, addr, key, value)
+			//}
 			newSSlot := SSlot{Value: value, TxInfo: TxInfoMini{Index: txIndex, Incarnation: txIncarnation}}
-			slot, dirty := obj.dirtyStorage[key]
-			if !dirty { // 原先没有写入
-				slot = &Slot{Value: make([]SSlot, 0), len: 0}
-				obj.dirtyStorage[key] = slot
+
+			if _, dirty := obj.dirtyStorage[key]; !dirty { // 原先没有写入
+				obj.dirtyStorage[key] = newEmptySlot()
 			}
+			slot := obj.dirtyStorage[key]
 			slot.Value = append(slot.Value, newSSlot)
 			slot.len += 1
+			//if txIndex == 11 {
+			//	fmt.Println(obj.dirtyStorage[key].Value[obj.dirtyStorage[key].len-1].Value)
+			//}
 		}
 	}
+
+	//if txIndex == 11 {
+	//	obj := s.stateObjects[common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7")]
+	//	fmt.Println("len(obj.dirtyStorage):", len(obj.dirtyStorage))
+	//}
 }
 
 // Root converts a provided account set from address keyed to hash keyed.

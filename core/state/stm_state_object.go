@@ -48,6 +48,15 @@ func newSlot(value common.Hash) *Slot {
 	return s
 }
 
+// newSlot, 初始化为从leveldb中读取
+func newEmptySlot() *Slot {
+	s := &Slot{
+		Value: make([]SSlot, 0),
+		len:   0,
+	}
+	return s
+}
+
 func (s *Slot) Copy() *Slot {
 	cpSlot := &Slot{
 		Value: make([]SSlot, 0),
@@ -323,12 +332,15 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 
 // finalise moves all dirty storage slots into the pending area to be hashed or
 // committed later. It is invoked at the end of every transaction.
-func (s *stmStateObject) finalise(prefetch bool) {
+func (s *stmStateObject) finalise(prefetch bool, txIndex int) {
 	slotsToPrefetch := make([][]byte, 0, len(s.dirtyStorage))
 	for key, dirtySlot := range s.dirtyStorage {
-		s.pendingStorage[key] = dirtySlot
+		//if txIndex == 11 {
+		//	fmt.Println(key, dirtySlot.Value[dirtySlot.len-1].Value)
+		//}
+		s.pendingStorage[key] = dirtySlot.Copy()
 		originSlot := s.originStorage[key]
-		if dirtySlot.Value[dirtySlot.len-1] != originSlot.Value[originSlot.len-1] {
+		if dirtySlot.Value[dirtySlot.len-1].Value != originSlot.Value[originSlot.len-1].Value {
 			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
 		}
 	}
@@ -346,7 +358,7 @@ func (s *stmStateObject) finalise(prefetch bool) {
 // made. An error will be returned if the trie can't be loaded/updated correctly.
 func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 	// Make sure all dirty slots are finalized into the pending storage area
-	s.finalise(false) // Don't prefetch anymore, pull directly if need be
+	s.finalise(false, -1) // Don't prefetch anymore, pull directly if need be
 	if len(s.pendingStorage) == 0 {
 		return s.trie, nil
 	}
@@ -429,8 +441,9 @@ func (s *stmStateObject) updateRoot(db Database) {
 	if metrics.EnabledExpensive {
 		defer func(start time.Time) { s.db.StorageHashes += time.Since(start) }(time.Now())
 	}
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	data.Root = tr.Hash()
+	//data := s.data.StateAccount[s.data.len-1].StateAccount
+	//data.Root = tr.Hash()
+	s.data.StateAccount[s.data.len-1].StateAccount.Root = tr.Hash()
 }
 
 // commitTrie submits the storage changes into the storage trie and re-computes

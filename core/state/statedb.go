@@ -316,11 +316,17 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 
 // GetState retrieves a value from the given account's storage trie.
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
+	var stateHash common.Hash = common.Hash{}
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
-		return stateObject.GetState(s.db, hash)
+		//return stateObject.GetState(s.db, hash)
+		stateHash = stateObject.GetState(s.db, hash)
 	}
-	return common.Hash{}
+	//return common.Hash{}
+	//if s.txIndex == 11 {
+	//	fmt.Println(addr, hash, stateHash)
+	//}
+	return stateHash
 }
 
 // GetProof returns the Merkle proof for a given account.
@@ -860,7 +866,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 				delete(s.snapStorage, obj.addrHash)  // Clear out any previously updated storage data (may be recreated via a resurrect)
 			}
 		} else {
-			obj.finalise(true) // Prefetch slots in the background
+			obj.finalise(true, s.txIndex) // Prefetch slots in the background
 		}
 		s.stateObjectsPending[addr] = struct{}{}
 		s.stateObjectsDirty[addr] = struct{}{}
