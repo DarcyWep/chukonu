@@ -22,7 +22,7 @@ func replayTransactions() {
 		return
 	}
 	defer db.Close()
-	var number uint64 = 9776805
+	var number uint64 = 9776809
 	//var number uint64 = 11090500
 	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
 	if err != nil {
@@ -32,7 +32,7 @@ func replayTransactions() {
 
 	var (
 		parent     *types.Header  = blockPre.Header()
-		parentRoot common.Hash    = parent.Root
+		parentRoot *common.Hash   = &parent.Root
 		stateCache state.Database = database.NewStateCache(db)
 		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
 	)
@@ -46,10 +46,10 @@ func replayTransactions() {
 
 	var hash1106 common.Hash
 	//var hash1106_1 *common.Hash
-	min, max, addSpan := big.NewInt(9776806), big.NewInt(9776807), big.NewInt(1)
+	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776811), big.NewInt(1)
 	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
 		stateDb = nil
-		stateDb, _ = state.NewStmStateDB(parentRoot, stateCache, snaps) // 每个区块重新构建statedb以释放内存
+		stateDb, _ = state.NewStmStateDB(*parentRoot, stateCache, snaps) // 每个区块重新构建statedb以释放内存
 
 		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
 		if err2 != nil {
@@ -60,7 +60,7 @@ func replayTransactions() {
 		_, _, _, _, _ = processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
 
 		hash1106 = block.Root()
-		_, _, _, _, err = stmProcessor.Process(block, stateDb, vm.Config{EnablePreimageRecording: false})
+		parentRoot, _, _, _, err = stmProcessor.Process(block, stateDb, vm.Config{EnablePreimageRecording: false})
 		if err != nil {
 			fmt.Println("process error", err)
 			return
@@ -87,7 +87,7 @@ func replayTransactions() {
 		parent = block.Header()
 		//fmt.Println(hash1106.Hex())
 		//fmt.Println(hash1106_1.Hex())
-		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == root)
+		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == root, *parentRoot == root)
 		//fmt.Println()
 	}
 

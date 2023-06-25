@@ -266,6 +266,7 @@ func (s *StmStateDB) Finalise(deleteEmptyObjects bool) {
 			// 如果长度为1，且是从leveldb中读取到的(index = -1), 则非经过修改的结点
 			continue
 		}
+		//fmt.Println(addr)
 		objState := obj.data.StateAccount[obj.data.len-1]
 		if objState.suicided || (deleteEmptyObjects && obj.empty()) {
 			objState.deleted = true
@@ -504,24 +505,23 @@ func (s *StmStateDB) convertAccountSet(set map[common.Address]struct{}) map[comm
 
 func (s *StmStateDB) Validation(valObjects map[common.Address]*stmTxStateObject, txIndex, txIncarnation int) {
 	for addr, txObj := range valObjects {
-		obj := s.stateObjects[addr]
-		objData := obj.data.StateAccount[obj.data.len-1]
-		// 没有被删除, 且data一致则state不变
-		if !txObj.data.deleted && txObj.data.StateAccount.Nonce == objData.StateAccount.Nonce &&
-			txObj.data.StateAccount.Balance.Cmp(objData.StateAccount.Balance) == 0 && bytes.Equal(txObj.data.StateAccount.CodeHash, objData.StateAccount.CodeHash) {
+		obj, exist := s.stateObjects[addr]
+		if exist {
+			objData := obj.data.StateAccount[obj.data.len-1]
+			// 没有被删除, 且data一致则state不变
+			if !txObj.data.deleted && txObj.data.StateAccount.Nonce == objData.StateAccount.Nonce &&
+				txObj.data.StateAccount.Balance.Cmp(objData.StateAccount.Balance) == 0 && bytes.Equal(txObj.data.StateAccount.CodeHash, objData.StateAccount.CodeHash) {
 
-		} else {
-			newStateAccount := types.StateAccount{Nonce: txObj.Nonce(), Balance: new(big.Int).Set(txObj.Balance()), Root: txObj.Root(), CodeHash: common.CopyBytes(txObj.CodeHash())}
-			newSStateAccount := SStateAccount{
-				StateAccount: newStateAccount,
-				Code:         common.CopyBytes(txObj.data.Code),
-				dirtyCode:    txObj.data.dirtyCode,
-				suicided:     txObj.data.suicided,
-				deleted:      txObj.data.deleted,
-				TxInfo:       TxInfoMini{Index: txIndex, Incarnation: txIncarnation},
+			} else {
+				obj.setStateAccount(txObj, txIndex, txIncarnation)
 			}
-			obj.data.StateAccount = append(obj.data.StateAccount, newSStateAccount)
+		} else {
+			obj = createStmStateObject(s, addr)
+			//fmt.Println(addr, obj)
+			s.stateObjects[addr] = obj
+			obj.setStateAccount(txObj, txIndex, txIncarnation)
 		}
+
 		for key, value := range txObj.dirtyStorage {
 			newSSlot := SSlot{Value: value, TxInfo: TxInfoMini{Index: txIndex, Incarnation: txIncarnation}}
 			slot, dirty := obj.dirtyStorage[key]

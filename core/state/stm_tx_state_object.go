@@ -124,6 +124,7 @@ func (s *stmTxStateObject) AddBalance(amount *big.Int) {
 		}
 		return
 	}
+	//fmt.Println("SetBalance Error", s.Balance(), amount)
 	s.SetBalance(new(big.Int).Add(s.Balance(), amount))
 }
 

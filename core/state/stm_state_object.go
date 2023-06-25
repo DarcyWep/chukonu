@@ -197,6 +197,23 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 	}
 }
 
+func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObject {
+	stmAccount := &StmStateAccount{
+		StateAccount: make([]SStateAccount, 0),
+		len:          0,
+	}
+
+	return &stmStateObject{
+		db:             db,
+		address:        address,
+		addrHash:       crypto.Keccak256Hash(address[:]),
+		data:           stmAccount,
+		originStorage:  make(StmStorage),
+		pendingStorage: make(StmStorage),
+		dirtyStorage:   make(StmStorage),
+	}
+}
+
 // EncodeRLP implements rlp.Encoder.
 func (s *stmStateObject) EncodeRLP(w io.Writer) error {
 	return rlp.Encode(w, &s.data.StateAccount[s.data.len-1].StateAccount)
@@ -230,8 +247,8 @@ func (s *stmStateObject) getTrie(db Database) (Trie, error) {
 func (s *stmStateObject) GetState(db Database, key common.Hash, txIndex, txIncarnation int) (sslot SSlot) {
 	// If we have a dirty value for this state entry, return it
 	slot, dirty := s.dirtyStorage[key]
-	sslot = slot.Value[slot.len-1]
 	if dirty {
+		sslot = slot.Value[slot.len-1]
 		return
 	}
 	// Otherwise return the entry's original value, 需要从db中获取
@@ -435,6 +452,20 @@ func (s *stmStateObject) commitTrie(db Database) (*trie.NodeSet, error) {
 	data := s.data.StateAccount[s.data.len-1].StateAccount
 	data.Root = root
 	return nodes, nil
+}
+
+func (s *stmStateObject) setStateAccount(txObj *stmTxStateObject, txIndex, txIncarnation int) {
+	newStateAccount := types.StateAccount{Nonce: txObj.Nonce(), Balance: new(big.Int).Set(txObj.Balance()), Root: txObj.Root(), CodeHash: common.CopyBytes(txObj.CodeHash())}
+	newSStateAccount := SStateAccount{
+		StateAccount: newStateAccount,
+		Code:         common.CopyBytes(txObj.data.Code),
+		dirtyCode:    txObj.data.dirtyCode,
+		suicided:     txObj.data.suicided,
+		deleted:      txObj.data.deleted,
+		TxInfo:       TxInfoMini{Index: txIndex, Incarnation: txIncarnation},
+	}
+	s.data.StateAccount = append(s.data.StateAccount, newSStateAccount)
+	s.data.len += 1
 }
 
 // Address returns the address of the contract/account

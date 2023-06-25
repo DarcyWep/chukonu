@@ -392,7 +392,10 @@ func (s *StmTransaction) createObject(addr common.Address) (newobj, prev *stmTxS
 	prev = s.getDeletedStateObject(addr) // Note, prev might have been deleted, we need that!
 
 	var prevdestruct bool
-	stateAccount := SStateAccount{StateAccount: types.StateAccount{}, TxInfo: TxInfoMini{-2, -2}}
+	stateAccount := SStateAccount{
+		StateAccount: types.StateAccount{Nonce: 0, Balance: new(big.Int).SetInt64(0), Root: types.EmptyRootHash, CodeHash: types.EmptyCodeHash.Bytes()},
+		TxInfo:       TxInfoMini{-2, -2},
+	}
 	if prev != nil { // 之前的不为空，新建一个等于把之前的销毁
 		_, prevdestruct = s.TxDB.stateObjectsDestruct[prev.address]
 		if !prevdestruct {
@@ -562,4 +565,5 @@ func (s *StmTransaction) Validation(deleteEmptyObjects bool) {
 		}
 		valObjects[addr] = obj
 	}
+	s.TxDB.statedb.Validation(valObjects, s.Index, s.Incarnation)
 }

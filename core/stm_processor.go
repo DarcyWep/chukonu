@@ -64,6 +64,8 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
+		root := stmStateDB.IntermediateRoot(true)
+		fmt.Println(i, root)
 	}
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
@@ -89,6 +91,7 @@ func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, 
 	}
 
 	// Update the state with pending changes.
+	statedb.Validation(true)
 	var root []byte
 	if config.IsByzantium(blockNumber) {
 		stmStateDB.Finalise(true)
