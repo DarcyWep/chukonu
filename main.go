@@ -22,7 +22,7 @@ func replayTransactions() {
 		return
 	}
 	defer db.Close()
-	var number uint64 = 12000000
+	var number uint64 = 9776805
 	//var number uint64 = 11090500
 	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
 	if err != nil {
@@ -46,7 +46,7 @@ func replayTransactions() {
 
 	var hash1106 common.Hash
 	//var hash1106_1 *common.Hash
-	min, max, addSpan := big.NewInt(12000001), big.NewInt(12100000), big.NewInt(1)
+	min, max, addSpan := big.NewInt(9776806), big.NewInt(9776807), big.NewInt(1)
 	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
 		stateDb = nil
 		stateDb, _ = state.NewStmStateDB(parentRoot, stateCache, snaps) // 每个区块重新构建statedb以释放内存
@@ -93,37 +93,6 @@ func replayTransactions() {
 
 }
 
-func computing20WBlocksTxSum() {
-	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
-	if err != nil {
-		fmt.Println("open leveldb", err)
-		return
-	}
-	defer db.Close()
-
-	var txSum uint64 = 0
-	min, max, addSpan := big.NewInt(12000001), big.NewInt(12200001), big.NewInt(1)
-	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
-		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
-		if err2 != nil {
-			fmt.Println(err2)
-			return
-		}
-		txSum += uint64(block.Transactions().Len())
-		fmt.Println(block.Number().String(), txSum)
-	}
-
-}
-
 func main() {
-	//prefetchHashChan = make(chan common.Hash, 2048)
-	//compareHashChan = make(chan common.Hash, 2048)
-	//runtime.GOMAXPROCS(runtime.NumCPU())
-	//replayTransactions()
-	//close(prefetchHashChan)
-	//close(compareHashChan)
-
-	computing20WBlocksTxSum()
+	replayTransactions()
 }
-
-// https://www.cyberciti.biz/faq/create-a-bootable-windows-10-usb-in-linux/
