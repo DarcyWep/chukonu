@@ -93,11 +93,11 @@ func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, 
 	// Update the state with pending changes.
 	statedb.Validation(true)
 	var root []byte
-	if config.IsByzantium(blockNumber) {
-		stmStateDB.Finalise(true, statedb.Index)
-	} else {
-		root = stmStateDB.IntermediateRoot(config.IsEIP158(blockNumber), statedb.Index).Bytes()
-	}
+	//if config.IsByzantium(blockNumber) {
+	//	stmStateDB.Finalise(true, statedb.Index)
+	//} else {
+	//	root = stmStateDB.IntermediateRoot(config.IsEIP158(blockNumber), statedb.Index).Bytes()
+	//}
 	*usedGas += result.UsedGas
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used
