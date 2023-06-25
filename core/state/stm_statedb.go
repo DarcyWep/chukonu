@@ -1,7 +1,9 @@
 package state
 
 import (
+	"bytes"
 	"fmt"
+	"math/big"
 	"time"
 
 	"chukonu/core/rawdb"
@@ -498,4 +500,51 @@ func (s *StmStateDB) convertAccountSet(set map[common.Address]struct{}) map[comm
 		}
 	}
 	return ret
+}
+
+func (s *StmStateDB) Validation(valObjects map[common.Address]*stmTxStateObject, txIndex, txIncarnation int) {
+	for addr, txObj := range valObjects {
+		obj := s.stateObjects[addr]
+		objData := obj.data.StateAccount[obj.data.len-1]
+		// 没有被删除, 且data一致则state不变
+		if !txObj.data.deleted && txObj.data.StateAccount.Nonce == objData.StateAccount.Nonce &&
+			txObj.data.StateAccount.Balance.Cmp(objData.StateAccount.Balance) == 0 && bytes.Equal(txObj.data.StateAccount.CodeHash, objData.StateAccount.CodeHash) {
+
+		} else {
+			newStateAccount := types.StateAccount{Nonce: txObj.Nonce(), Balance: new(big.Int).Set(txObj.Balance()), Root: txObj.Root(), CodeHash: common.CopyBytes(txObj.CodeHash())}
+			newSStateAccount := SStateAccount{
+				StateAccount: newStateAccount,
+				Code:         common.CopyBytes(txObj.data.Code),
+				dirtyCode:    txObj.data.dirtyCode,
+				suicided:     txObj.data.suicided,
+				deleted:      txObj.data.deleted,
+				TxInfo:       TxInfoMini{Index: txIndex, Incarnation: txIncarnation},
+			}
+			obj.data.StateAccount = append(obj.data.StateAccount, newSStateAccount)
+		}
+		for key, value := range txObj.dirtyStorage {
+			newSSlot := SSlot{Value: value, TxInfo: TxInfoMini{Index: txIndex, Incarnation: txIncarnation}}
+			slot, dirty := obj.dirtyStorage[key]
+			if !dirty { // 原先没有写入
+				slot = &Slot{Value: make([]SSlot, 0), len: 0}
+				obj.dirtyStorage[key] = slot
+			}
+			slot.Value = append(slot.Value, newSSlot)
+			slot.len += 1
+		}
+	}
+}
+
+// Root converts a provided account set from address keyed to hash keyed.
+func (s *StmStateDB) Root() common.Hash {
+	return s.originalRoot
+}
+
+// AddBalance adds amount to the account associated with addr.
+func (s *StmStateDB) AddBalance(addr common.Address, amount *big.Int) {
+	obj, exist := s.stateObjects[addr]
+	if exist {
+		oldBalance := obj.data.StateAccount[obj.data.len-1].StateAccount.Balance
+		obj.data.StateAccount[obj.data.len-1].StateAccount.Balance = new(big.Int).Add(oldBalance, amount)
+	}
 }

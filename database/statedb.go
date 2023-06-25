@@ -47,6 +47,15 @@ func NewStateDB(header *types.Header, stateCache state.Database, snaps *snapshot
 	return stateDb
 }
 
+func NewStmStateDB(header *types.Header, stateCache state.Database, snaps *snapshot.Tree) *state.StmStateDB {
+	stateDb, err := state.NewStmStateDB(header.Root, stateCache, snaps)
+	if err != nil {
+		fmt.Println(stateDb, "New StateDB Error", err)
+		return nil
+	}
+	return stateDb
+}
+
 //func NewStateDatabase(db ethdb.Database, number uint64, parent *types.Header) (*state.StateDB, error) {
 //	var stateDB *state.StateDB = nil
 //	var err error

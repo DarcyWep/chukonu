@@ -220,3 +220,7 @@ func (s *stmTxStateObject) Balance() *big.Int {
 func (s *stmTxStateObject) Nonce() uint64 {
 	return s.data.StateAccount.Nonce
 }
+
+func (s *stmTxStateObject) Root() common.Hash {
+	return s.data.StateAccount.Root
+}

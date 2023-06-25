@@ -543,3 +543,23 @@ func (s *StmTransaction) AddressInAccessList(addr common.Address) bool {
 func (s *StmTransaction) SlotInAccessList(addr common.Address, slot common.Hash) (addressPresent bool, slotPresent bool) {
 	return s.TxDB.accessList.Contains(addr, slot)
 }
+
+func (s *StmTransaction) Validation(deleteEmptyObjects bool) {
+	valObjects := make(map[common.Address]*stmTxStateObject)
+	for addr := range s.TxDB.journal.dirties {
+		obj, exist := s.TxDB.stateObjects[addr]
+		if !exist {
+			// ripeMD is 'touched' at block 1714175, in tx 0x1237f737031e40bcde4a8b7e717b2d15e3ecadfe49bb1bbc71ee9deb09c6fcf2
+			// That tx goes out of gas, and although the notion of 'touched' does not exist there, the
+			// touch-event will still be recorded in the journal. Since ripeMD is a special snowflake,
+			// it will persist in the journal even though the journal is reverted. In this special circumstance,
+			// it may exist in `s.journal.dirties` but not in `s.stateObjects`.
+			// Thus, we can safely ignore it here
+			continue
+		}
+		if obj.data.suicided || (deleteEmptyObjects && obj.empty()) {
+			obj.data.deleted = true
+		}
+		valObjects[addr] = obj
+	}
+}
