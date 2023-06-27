@@ -16,7 +16,7 @@ type stmTxStateObject struct {
 
 	address  common.Address
 	addrHash common.Hash // hash of ethereum address of the account
-	data     SStateAccount
+	data     *SStateAccount
 	txdb     *stmTxStateDB
 	statedb  *StmStateDB
 
@@ -39,7 +39,7 @@ func newStmTxStateObject(txdb *stmTxStateDB, statedb *StmStateDB, address common
 		statedb:       statedb,
 		address:       address,
 		addrHash:      crypto.Keccak256Hash(address[:]),
-		data:          data,
+		data:          newSStateAccount(data.StateAccount, data.Code, data.dirtyCode, data.suicided, data.deleted, data.TxInfo.Copy()),
 		originStorage: make(SStorage),
 		dirtyStorage:  make(Storage),
 	}
@@ -75,7 +75,7 @@ func (s *stmTxStateObject) GetState(key common.Hash) common.Hash {
 	// 否则需并发的从statedb中读取
 	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
 	txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-	s.originStorage[key] = &SSlot{Value: oldSSlot.Value, TxInfo: txInfo}
+	s.originStorage[key] = &SSlot{Value: common.BytesToHash(common.CopyBytes(oldSSlot.Value.Bytes())), TxInfo: txInfo}
 	return oldSSlot.Value
 }
 

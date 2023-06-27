@@ -16,6 +16,8 @@ type StmTransaction struct {
 	Index       int
 	Incarnation int
 	TxDB        *stmTxStateDB
+
+	accessAddress *types.AccessAddressMap
 }
 
 type stmTxStateDB struct {
@@ -65,6 +67,7 @@ func NewStmTransaction(tx *types.Transaction, index, incarnation int, statedb *S
 			accessList:           newAccessList(),
 			transientStorage:     newTransientStorage(),
 		},
+		accessAddress: types.NewAccessAddressMap(),
 	}
 	return stmTx
 }
@@ -132,18 +135,21 @@ func (s *StmTransaction) SubRefund(gas uint64) {
 // Exist reports whether the given account address exists in the state.
 // Notably this also returns true for suicided accounts.
 func (s *StmTransaction) Exist(addr common.Address) bool {
+	addAccessAddr(s.accessAddress, addr, true)
 	return s.getStateObject(addr) != nil
 }
 
 // Empty returns whether the state object is either non-existent
 // or empty according to the EIP161 specification (balance = nonce = code = 0)
 func (s *StmTransaction) Empty(addr common.Address) bool {
+	addAccessAddr(s.accessAddress, addr, true)
 	so := s.getStateObject(addr)
 	return so == nil || so.empty()
 }
 
 // GetBalance retrieves the balance from the given address or 0 if object not found
 func (s *StmTransaction) GetBalance(addr common.Address) *big.Int {
+	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		return stmTxStateObject.Balance()
@@ -152,6 +158,7 @@ func (s *StmTransaction) GetBalance(addr common.Address) *big.Int {
 }
 
 func (s *StmTransaction) GetNonce(addr common.Address) uint64 {
+	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		return stmTxStateObject.Nonce()
@@ -166,6 +173,7 @@ func (s *StmTransaction) TxIndex() int {
 }
 
 func (s *StmTransaction) GetCode(addr common.Address) []byte {
+	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		return stmTxStateObject.Code()
@@ -174,6 +182,7 @@ func (s *StmTransaction) GetCode(addr common.Address) []byte {
 }
 
 func (s *StmTransaction) GetCodeSize(addr common.Address) int {
+	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		return stmTxStateObject.CodeSize()
@@ -182,6 +191,7 @@ func (s *StmTransaction) GetCodeSize(addr common.Address) int {
 }
 
 func (s *StmTransaction) GetCodeHash(addr common.Address) common.Hash {
+	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject == nil {
 		return common.Hash{}
@@ -191,6 +201,7 @@ func (s *StmTransaction) GetCodeHash(addr common.Address) common.Hash {
 
 // GetState retrieves a value from the given account's storage trie.
 func (s *StmTransaction) GetState(addr common.Address, hash common.Hash) common.Hash {
+	addAccessSlot(s.accessAddress, addr, hash, true, s.Index)
 	var stateHash common.Hash = common.Hash{}
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
@@ -205,6 +216,7 @@ func (s *StmTransaction) GetState(addr common.Address, hash common.Hash) common.
 
 // GetCommittedState retrieves a value from the given account's committed storage trie.
 func (s *StmTransaction) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+	addAccessSlot(s.accessAddress, addr, hash, true, s.Index)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		// 这里可能会有点问题
@@ -214,6 +226,7 @@ func (s *StmTransaction) GetCommittedState(addr common.Address, hash common.Hash
 }
 
 func (s *StmTransaction) HasSuicided(addr common.Address) bool {
+	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		return stmTxStateObject.data.suicided
@@ -227,6 +240,7 @@ func (s *StmTransaction) HasSuicided(addr common.Address) bool {
 
 // AddBalance adds amount to the account associated with addr.
 func (s *StmTransaction) AddBalance(addr common.Address, amount *big.Int) {
+	addAccessAddr(s.accessAddress, addr, false)
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.AddBalance(amount)
@@ -235,6 +249,7 @@ func (s *StmTransaction) AddBalance(addr common.Address, amount *big.Int) {
 
 // SubBalance subtracts amount from the account associated with addr.
 func (s *StmTransaction) SubBalance(addr common.Address, amount *big.Int) {
+	addAccessAddr(s.accessAddress, addr, false)
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.SubBalance(amount)
@@ -249,6 +264,7 @@ func (s *StmTransaction) SetBalance(addr common.Address, amount *big.Int) {
 }
 
 func (s *StmTransaction) SetNonce(addr common.Address, nonce uint64) {
+	addAccessAddr(s.accessAddress, addr, false)
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.SetNonce(nonce)
@@ -256,6 +272,7 @@ func (s *StmTransaction) SetNonce(addr common.Address, nonce uint64) {
 }
 
 func (s *StmTransaction) SetCode(addr common.Address, code []byte) {
+	addAccessAddr(s.accessAddress, addr, false)
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.SetCode(crypto.Keccak256Hash(code), code)
@@ -263,6 +280,7 @@ func (s *StmTransaction) SetCode(addr common.Address, code []byte) {
 }
 
 func (s *StmTransaction) SetState(addr common.Address, key, value common.Hash) {
+	addAccessSlot(s.accessAddress, addr, key, false, s.Index)
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.SetState(key, value)
@@ -289,6 +307,7 @@ func (s *StmTransaction) SetStorage(addr common.Address, storage map[common.Hash
 // The account's state object is still available until the state is committed,
 // getStateObject will return a non-nil account after Suicide.
 func (s *StmTransaction) Suicide(addr common.Address) bool {
+	addAccessAddr(s.accessAddress, addr, false)
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject == nil {
 		return false
@@ -308,6 +327,7 @@ func (s *StmTransaction) Suicide(addr common.Address) bool {
 // adds the change to the journal so that it can be rolled back
 // to its previous value if there is a revert.
 func (s *StmTransaction) SetTransientState(addr common.Address, key, value common.Hash) {
+	addAccessAddr(s.accessAddress, addr, true)
 	prev := s.GetTransientState(addr, key)
 	if prev == value {
 		return
@@ -331,6 +351,7 @@ func (sts *stmTxStateDB) setTransientState(addr common.Address, key, value commo
 
 // GetTransientState gets transient storage for a given account.
 func (s *StmTransaction) GetTransientState(addr common.Address, key common.Hash) common.Hash {
+	addAccessAddr(s.accessAddress, addr, true)
 	return s.TxDB.transientStorage.Get(addr, key)
 }
 
@@ -398,7 +419,7 @@ func (s *StmTransaction) createObject(addr common.Address) (newobj, prev *stmTxS
 
 	var prevdestruct bool
 	stateAccount := SStateAccount{
-		StateAccount: types.StateAccount{Nonce: 0, Balance: new(big.Int).SetInt64(0), Root: types.EmptyRootHash, CodeHash: types.EmptyCodeHash.Bytes()},
+		StateAccount: types.NewStateAccount(0, new(big.Int).SetInt64(0), types.EmptyRootHash, types.EmptyCodeHash.Bytes()),
 		TxInfo:       TxInfoMini{-2, -2},
 	}
 	if prev != nil { // 之前的不为空，新建一个等于把之前的销毁
@@ -433,6 +454,7 @@ func (s *StmTransaction) createObject(addr common.Address) (newobj, prev *stmTxS
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StmTransaction) CreateAccount(addr common.Address) {
+	addAccessAddr(s.accessAddress, addr, false)
 	newObj, prev := s.createObject(addr)
 	if prev != nil {
 		newObj.setBalance(prev.data.StateAccount.Balance)
@@ -550,6 +572,10 @@ func (s *StmTransaction) AddressInAccessList(addr common.Address) bool {
 // SlotInAccessList returns true if the given (address, slot)-tuple is in the access list.
 func (s *StmTransaction) SlotInAccessList(addr common.Address, slot common.Hash) (addressPresent bool, slotPresent bool) {
 	return s.TxDB.accessList.Contains(addr, slot)
+}
+
+func (s *StmTransaction) AccessAddress() *types.AccessAddressMap {
+	return s.accessAddress
 }
 
 func (s *StmTransaction) Validation(deleteEmptyObjects bool) {

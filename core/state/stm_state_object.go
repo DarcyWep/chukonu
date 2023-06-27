@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"sync"
 	"time"
 
 	"chukonu/core/types"
@@ -30,6 +31,13 @@ func (t TxInfoMini) Copy() TxInfoMini {
 type SSlot struct {
 	Value  common.Hash
 	TxInfo TxInfoMini
+}
+
+func (slot *SSlot) Copy() *SSlot {
+	return &SSlot{
+		Value:  common.BytesToHash(common.CopyBytes(slot.Value.Bytes())),
+		TxInfo: slot.TxInfo.Copy(),
+	}
 }
 
 type Slot struct {
@@ -86,7 +94,7 @@ func (s StmStorage) Copy() StmStorage {
 }
 
 type SStateAccount struct {
-	StateAccount types.StateAccount
+	StateAccount *types.StateAccount
 	Code         []byte
 	// Cache flags.
 	// When an object is marked suicided it will be deleted from the trie
@@ -97,26 +105,41 @@ type SStateAccount struct {
 	TxInfo    TxInfoMini
 }
 
+func newSStateAccount(data *types.StateAccount, code []byte, dirtyCode, suicided, deleted bool, txInfo TxInfoMini) *SStateAccount {
+	return &SStateAccount{
+		StateAccount: data.Copy(),
+		Code:         common.CopyBytes(code),
+		dirtyCode:    dirtyCode,
+		suicided:     suicided,
+		deleted:      deleted,
+		TxInfo:       txInfo.Copy(),
+	}
+}
+
+func (ssa *SStateAccount) Copy() *SStateAccount {
+	return &SStateAccount{
+		StateAccount: ssa.StateAccount.Copy(),
+		Code:         common.CopyBytes(ssa.Code),
+		dirtyCode:    ssa.dirtyCode,
+		suicided:     ssa.suicided,
+		deleted:      ssa.deleted,
+		TxInfo:       ssa.TxInfo.Copy(),
+	}
+}
+
 type StmStateAccount struct {
-	StateAccount []SStateAccount
+	StateAccount []*SStateAccount
 	len          int
 }
 
 // newStmStateAccount 新建一个空的，或者是从leveldb中读取
-func newStmStateAccount(data types.StateAccount, statedb *StmStateDB, addrHash common.Hash) *StmStateAccount {
+func newStmStateAccount(data *types.StateAccount, statedb *StmStateDB, addrHash common.Hash) *StmStateAccount {
 	sa := &StmStateAccount{
-		StateAccount: make([]SStateAccount, 0),
+		StateAccount: make([]*SStateAccount, 0),
 		len:          1,
 	}
 	// 初始阶段为 -1, 无效为-2
-	stateAccount := SStateAccount{
-		StateAccount: data,
-		Code:         nil,
-		dirtyCode:    false,
-		suicided:     false,
-		deleted:      false,
-		TxInfo:       TxInfoMini{Index: -1, Incarnation: -1},
-	}
+	stateAccount := newSStateAccount(data, nil, false, false, false, TxInfoMini{Index: -1, Incarnation: -1})
 	// 该地址为合约地址，则需提取Code
 	if !bytes.Equal(data.CodeHash, types.EmptyCodeHash.Bytes()) {
 		code, err := statedb.db.ContractCode(addrHash, common.BytesToHash(data.CodeHash))
@@ -167,6 +190,8 @@ type stmStateObject struct {
 	// Write caches.
 	trie Trie // storage trie, which becomes non-nil on first access
 
+	originMutex    sync.RWMutex
+	dirtyMutex     sync.RWMutex
 	originStorage  StmStorage // StmStorage cache of original entries to dedup rewrites, reset for every transaction
 	pendingStorage StmStorage // StmStorage entries that need to be flushed to disk, at the end of an entire block
 	dirtyStorage   StmStorage // StmStorage entries that have been modified in the current transaction execution
@@ -193,7 +218,7 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 	if data.Root == (common.Hash{}) {
 		data.Root = types.EmptyRootHash
 	}
-	stmAccount := newStmStateAccount(data, db, crypto.Keccak256Hash(address[:]))
+	stmAccount := newStmStateAccount(&data, db, crypto.Keccak256Hash(address[:]))
 
 	return &stmStateObject{
 		db:             db,
@@ -208,7 +233,7 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 
 func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObject {
 	stmAccount := &StmStateAccount{
-		StateAccount: make([]SStateAccount, 0),
+		StateAccount: make([]*SStateAccount, 0),
 		len:          0,
 	}
 
@@ -271,7 +296,10 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		sslot = slot.Value[slot.len-1]
 		return
 	}
-	if slot, cached := s.originStorage[key]; cached {
+	s.originMutex.Lock()
+	slot, cached := s.originStorage[key]
+	s.originMutex.Unlock()
+	if cached {
 		sslot = slot.Value[slot.len-1]
 		return
 	}
@@ -324,9 +352,18 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		}
 		value.SetBytes(content)
 	}
-	slot := newSlot(value)
-	s.originStorage[key] = slot
-	sslot = slot.Value[slot.len-1]
+	slot = newSlot(value)
+	s.originMutex.Lock()
+	nSlot, ok := s.originStorage[key]
+	if !ok {
+		s.originStorage[key] = slot
+	}
+	s.originMutex.Unlock()
+	if ok {
+		sslot = nSlot.Value[nSlot.len-1]
+	} else {
+		sslot = slot.Value[slot.len-1]
+	}
 	return
 }
 
@@ -468,15 +505,7 @@ func (s *stmStateObject) commitTrie(db Database) (*trie.NodeSet, error) {
 }
 
 func (s *stmStateObject) setStateAccount(txObj *stmTxStateObject, txIndex, txIncarnation int) {
-	newStateAccount := types.StateAccount{Nonce: txObj.Nonce(), Balance: new(big.Int).Set(txObj.Balance()), Root: txObj.Root(), CodeHash: common.CopyBytes(txObj.CodeHash())}
-	newSStateAccount := SStateAccount{
-		StateAccount: newStateAccount,
-		Code:         common.CopyBytes(txObj.data.Code),
-		dirtyCode:    txObj.data.dirtyCode,
-		suicided:     txObj.data.suicided,
-		deleted:      txObj.data.deleted,
-		TxInfo:       TxInfoMini{Index: txIndex, Incarnation: txIncarnation},
-	}
+	newSStateAccount := newSStateAccount(txObj.data.StateAccount, txObj.data.Code, txObj.data.dirtyCode, txObj.data.suicided, txObj.data.deleted, TxInfoMini{Index: txIndex, Incarnation: txIncarnation})
 	s.data.StateAccount = append(s.data.StateAccount, newSStateAccount)
 	s.data.len += 1
 }

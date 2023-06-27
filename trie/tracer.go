@@ -16,7 +16,10 @@
 
 package trie
 
-import "github.com/ethereum/go-ethereum/common"
+import (
+	"github.com/ethereum/go-ethereum/common"
+	"sync"
+)
 
 // tracer tracks the changes of trie nodes. During the trie operations,
 // some nodes can be deleted from the trie, while these deleted nodes
@@ -38,9 +41,10 @@ import "github.com/ethereum/go-ethereum/common"
 // Note tracer is not thread-safe, callers should be responsible for handling
 // the concurrency issues by themselves.
 type tracer struct {
-	inserts    map[string]struct{}
-	deletes    map[string]struct{}
-	accessList map[string][]byte
+	inserts     map[string]struct{}
+	deletes     map[string]struct{}
+	accessMutex sync.Mutex
+	accessList  map[string][]byte
 }
 
 // newTracer initializes the tracer for capturing trie changes.
@@ -56,7 +60,9 @@ func newTracer() *tracer {
 // blob internally. Don't change the value outside of function since
 // it's not deep-copied.
 func (t *tracer) onRead(path []byte, val []byte) {
+	t.accessMutex.Lock()
 	t.accessList[string(path)] = val
+	t.accessMutex.Unlock()
 }
 
 // onInsert tracks the newly inserted trie node. If it's already

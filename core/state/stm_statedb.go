@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"chukonu/core/rawdb"
@@ -25,6 +26,7 @@ type StmStateDB struct {
 	db         Database
 	prefetcher *triePrefetcher
 	trie       Trie
+	hashMutex  sync.Mutex
 	hasher     crypto.KeccakState
 
 	// originalRoot is the pre-state root, before any changes were made.
@@ -37,7 +39,9 @@ type StmStateDB struct {
 	snapStorage  map[common.Hash]map[common.Hash][]byte
 
 	// This map holds 'live' objects, which will get modified while processing a state transition.
-	stateObjects         map[common.Address]*stmStateObject
+	objectMutex  sync.RWMutex
+	stateObjects map[common.Address]*stmStateObject
+	//stateObjects         sync.Map
 	stateObjectsPending  map[common.Address]struct{} // State objects finalized but not yet written to the trie
 	stateObjectsDirty    map[common.Address]struct{} // State objects modified in the current execution
 	stateObjectsDestruct map[common.Address]struct{} // State objects destructed in the block
@@ -136,8 +140,11 @@ func (s *StmStateDB) GetState(addr common.Address, hash common.Hash, txIndex, tx
 	stmStateObject := s.getDeletedStateObject(addr)
 	stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
 	if stmStateObject != nil && !stateAccount.deleted {
+
+		//if !stateAccount.deleted {
 		sslot := stmStateObject.GetState(s.db, hash, txIndex, txIncarnation)
-		return &sslot
+		return sslot.Copy()
+		//}
 	}
 	return nil
 	//return &SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}
@@ -154,7 +161,7 @@ func (s *StmStateDB) getStateAccount(addr common.Address, txIndex, txIncarnation
 	if obj := s.getDeletedStateObject(addr); obj != nil {
 		stateAccount := obj.data.StateAccount[obj.data.len-1]
 		if !stateAccount.deleted {
-			return &stateAccount
+			return stateAccount.Copy()
 		}
 	}
 	return nil
@@ -166,14 +173,23 @@ func (s *StmStateDB) getStateAccount(addr common.Address, txIndex, txIncarnation
 // destructed object instead of wiping all knowledge about the state object.
 func (s *StmStateDB) getDeletedStateObject(addr common.Address) *stmStateObject {
 	// Prefer live objects if any is available
-	if obj := s.stateObjects[addr]; obj != nil {
+	//s.objectMutex.Lock()
+	//defer s.objectMutex.Unlock()
+	//s.objectMutex.Lock()
+	s.objectMutex.Lock()
+	obj, ok := s.stateObjects[addr]
+	s.objectMutex.Unlock()
+	//s.objectMutex.Unlock()
+	if ok {
 		return obj
 	}
 	// If no live objects are available, attempt to use snapshots
 	var data *types.StateAccount
 	if s.snap != nil {
 		start := time.Now()
+		s.hashMutex.Lock()
 		acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+		s.hashMutex.Unlock()
 		if metrics.EnabledExpensive {
 			s.SnapshotAccountReads += time.Since(start)
 		}
@@ -212,13 +228,26 @@ func (s *StmStateDB) getDeletedStateObject(addr common.Address) *stmStateObject 
 		}
 	}
 	// Insert into the live set
-	obj := newStmStateObject(s, addr, *data)
-	s.setStateObject(obj)
-	return obj
+	newObj := newStmStateObject(s, addr, *data)
+	newObj1, ok1 := s.setStateObject(newObj)
+	if ok1 {
+		return newObj1
+	}
+	return newObj
 }
 
-func (s *StmStateDB) setStateObject(object *stmStateObject) {
-	s.stateObjects[object.Address()] = object
+//func (s *StmStateDB) setStateObject(object *stmStateObject) {
+//	s.stateObjects[object.Address()] = object
+//}
+
+func (s *StmStateDB) setStateObject(object *stmStateObject) (obj *stmStateObject, ok bool) {
+	s.objectMutex.Lock()
+	obj, ok = s.stateObjects[object.Address()]
+	if !ok {
+		s.stateObjects[object.Address()] = object
+	}
+	s.objectMutex.Unlock()
+	return obj, ok
 }
 
 // updateStateObject writes the given object to the trie.
@@ -229,7 +258,7 @@ func (s *StmStateDB) updateStateObject(obj *stmStateObject) {
 	}
 	// Encode the account and update the account trie
 	addr := obj.Address()
-	if err := s.trie.TryUpdateAccount(addr, &obj.data.StateAccount[obj.data.len-1].StateAccount); err != nil {
+	if err := s.trie.TryUpdateAccount(addr, obj.data.StateAccount[obj.data.len-1].StateAccount); err != nil {
 		s.setError(fmt.Errorf("updateStateObject (%x) error: %v", addr[:], err))
 	}
 

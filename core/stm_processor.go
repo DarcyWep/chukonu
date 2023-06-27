@@ -2,6 +2,7 @@ package core
 
 import (
 	"chukonu/ethdb"
+	"sync"
 
 	"chukonu/core/state"
 	"chukonu/core/types"
@@ -12,6 +13,18 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"math/big"
 )
+
+type accessAddressChStruct struct {
+	aam   *types.AccessAddressMap
+	index int
+}
+
+func newAccessAddressChStruct(aam *types.AccessAddressMap, index int) *accessAddressChStruct {
+	return &accessAddressChStruct{
+		aam:   aam,
+		index: index,
+	}
+}
 
 // StmStateProcessor is a basic Processor, which takes care of transitioning
 // state from one point to another.
@@ -62,6 +75,7 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
+		stmTxDB.Validation(true)
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 		//root := stmStateDB.IntermediateRoot(true, i)
@@ -79,6 +93,78 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 	return &root, receipts, allLogs, *usedGas, nil
 }
 
+func (p *StmStateProcessor) ProcessConcurrently(block *types.Block, stmStateDB *state.StmStateDB, cfg vm.Config) *[]*types.AccessAddressMap {
+	var (
+		//receipts    types.Receipts
+		//usedGas     = new(uint64)
+		header = block.Header()
+		//blockHash   = block.Hash()
+		//blockNumber = block.Number()
+		//allLogs     []*types.Log
+		//gp          = new(GasPool).AddGas(block.GasLimit())
+
+		txsLen           = block.Transactions().Len()
+		txsAccessAddress = make([]*types.AccessAddressMap, txsLen)
+		wg               sync.WaitGroup
+		accessAddrChan   = make(chan *accessAddressChStruct, 1024)
+	)
+	blockContext := NewEVMBlockContext(header, p.chainDb, nil)
+	// Iterate over and process the individual transactions
+	wg.Add(txsLen)
+	for i, tx := range block.Transactions() {
+		go p.applyConcurrent(header, tx, i, stmStateDB, &blockContext, cfg, accessAddrChan, &wg)
+	}
+	received := 0
+	for aam := range accessAddrChan {
+		txsAccessAddress[aam.index] = aam.aam
+		received += 1
+		if received == txsLen {
+			close(accessAddrChan)
+		}
+	}
+	wg.Wait()
+	//for i, accessNormal := range txsAccessAddress {
+	//	for addr, slotNormal := range *accessNormal {
+	//		fmt.Println(i, addr, slotNormal.Slots)
+	//	}
+	//}
+	return &txsAccessAddress
+}
+
+func (p *StmStateProcessor) applyConcurrent(header *types.Header, tx *types.Transaction, i int, stmStateDB *state.StmStateDB, blockContext *vm.BlockContext, cfg vm.Config, accessAddrChan chan *accessAddressChStruct, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var (
+		receipts    types.Receipts
+		usedGas     = new(uint64)
+		blockHash   = header.Hash()
+		blockNumber = header.Number
+		//allLogs     []*types.Log
+		gp = new(GasPool).AddGas(header.GasLimit)
+	)
+
+	stmTxDB := state.NewStmTransaction(tx, i, 0, stmStateDB)
+	vmenv := vm.NewEVM(*blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
+	msg, _ := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
+
+	// 避免Nonce错误
+	stmTxDB.SetNonce(msg.From, msg.Nonce)
+
+	receipt, err := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
+	if err != nil {
+		fmt.Println(err)
+	}
+	receipts = append(receipts, receipt)
+	//allLogs = append(allLogs, receipt.Logs...)
+
+	//if i == 154 {
+	//	for addr, slotNormal := range *stmTxDB.AccessAddress() {
+	//		fmt.Println(i, addr, slotNormal.Slots)
+	//	}
+	//}
+
+	accessAddrChan <- newAccessAddressChStruct(stmTxDB.AccessAddress(), i)
+}
+
 func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, stmStateDB *state.StmStateDB, statedb *state.StmTransaction, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
@@ -91,7 +177,6 @@ func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, 
 	}
 
 	// Update the state with pending changes.
-	statedb.Validation(true)
 	var root []byte
 	//if config.IsByzantium(blockNumber) {
 	//	stmStateDB.Finalise(true, statedb.Index)

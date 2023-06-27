@@ -33,12 +33,20 @@ type StateAccount struct {
 	CodeHash []byte
 }
 
-func (sa StateAccount) Copy() StateAccount {
-	return StateAccount{
+func (sa StateAccount) Copy() *StateAccount {
+	return &StateAccount{
 		Nonce:    sa.Nonce,
 		Balance:  new(big.Int).Set(sa.Balance),
 		Root:     sa.Root,
 		CodeHash: common.CopyBytes(sa.CodeHash),
+	}
+}
+func NewStateAccount(nonce uint64, balance *big.Int, root common.Hash, codeHash []byte) *StateAccount {
+	return &StateAccount{
+		Nonce:    nonce,
+		Balance:  new(big.Int).Set(balance),
+		Root:     root,
+		CodeHash: common.CopyBytes(codeHash),
 	}
 }
 

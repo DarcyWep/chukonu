@@ -252,11 +252,16 @@ func TestTransactionCategories(t *testing.T) {
 	//}
 
 	funcBytes, _ := contractDB.Get([]byte(setting.SortFunctionsKey), nil)
+	callSum := 0
 	funcs := make([]*Function, 0)
 	json.Unmarshal(funcBytes, &funcs)
+	for _, fu := range funcs {
+		callSum += fu.CallNum
+	}
+
 	funcs = funcs[:100]
 	for _, fu := range funcs {
-		fmt.Println(fu.Sign, fu.Name, fu.CallNum)
+		fmt.Println(fu.Sign, fu.Name, fu.CallNum, float64(fu.CallNum)/float64(callSum)*100+0.005)
 	}
 
 	//contractBytes, _ := contractDB.Get([]byte(setting.SortContractsKey), nil)

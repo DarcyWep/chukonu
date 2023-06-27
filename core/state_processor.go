@@ -53,7 +53,7 @@ func NewStateProcessor(config *params.ChainConfig, chainDb ethdb.Database) *Stat
 // Process returns the receipts and logs accumulated during the process and
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
-func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (*common.Hash, types.Receipts, []*types.Log, uint64, error) {
+func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (*common.Hash, *[]*types.AccessAddressMap, types.Receipts, []*types.Log, uint64, error) {
 	var (
 		receipts    types.Receipts
 		usedGas     = new(uint64)
@@ -67,32 +67,42 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	blockContext := NewEVMBlockContext(header, p.chainDb, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 
+	txsAccessAddress := make([]*types.AccessAddressMap, 0)
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		msg, err := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 		if err != nil {
-			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		statedb.SetTxContext(tx.Hash(), i)
 		receipt, err := applyTransaction(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		if err != nil {
-			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 		//root := statedb.IntermediateRoot(true)
 		//fmt.Println(i, root)
+		//for addr, slotNormal := range *statedb.AccessAddress() {
+		//	fmt.Println(i, addr, slotNormal.Slots)
+		//}
+		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
 	if len(withdrawals) > 0 && !p.config.IsShanghai(block.Time()) {
-		return nil, nil, nil, 0, fmt.Errorf("withdrawals before shanghai")
+		return nil, nil, nil, nil, 0, fmt.Errorf("withdrawals before shanghai")
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	accumulateRewards(p.config, statedb, header, block.Uncles())
 
-	root := statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
-	return &root, receipts, allLogs, *usedGas, nil
+	//root := statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
+	//for i, accessNormal := range txsAccessAddress {
+	//	for addr, slotNormal := range *accessNormal {
+	//		fmt.Println(i, addr, slotNormal.Slots)
+	//	}
+	//}
+	return nil, &txsAccessAddress, receipts, allLogs, *usedGas, nil
 }
 
 func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
@@ -108,11 +118,11 @@ func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, sta
 
 	// Update the state with pending changes.
 	var root []byte
-	if config.IsByzantium(blockNumber) {
-		statedb.Finalise(true)
-	} else {
-		root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
-	}
+	//if config.IsByzantium(blockNumber) {
+	//	statedb.Finalise(true)
+	//} else {
+	//	root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
+	//}
 	*usedGas += result.UsedGas
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used
