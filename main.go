@@ -93,6 +93,8 @@ func replayTransactions() {
 
 }
 
+const testTxsLen = 10000
+
 func compare() {
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
 	if err != nil {
@@ -131,8 +133,9 @@ func compare() {
 		accessAddrNormal []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
 		accessAddrChu    []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
 	)
-	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776811), big.NewInt(1)
-	//min, max, addSpan := big.NewInt(9776810), big.NewInt(9776980), big.NewInt(1)
+	//min, max, addSpan := big.NewInt(9776810), big.NewInt(9776811), big.NewInt(1)
+
+	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776980), big.NewInt(1)
 	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
 		//stateDb = nil
 		//stateDb, _ = state.NewStmStateDB(parent.Root, stateCache, snaps) // 每个区块重新构建statedb以释放内存
@@ -151,7 +154,7 @@ func compare() {
 		txs = append(txs, block.Transactions()...)
 
 		txsLen += block.Transactions().Len()
-		if txsLen >= 1000 { // 对比1000个交易
+		if txsLen >= testTxsLen { // 对比1000个交易
 			break
 		}
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
@@ -165,7 +168,7 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 	slotInconsistency := 0
 	addrInconsistencyTxs, slotInconsistencyTxs := make([]int, 0), make([]int, 0)
 	for i, accessNormal := range *accessAddrNormal {
-		if i == 1000 {
+		if i == testTxsLen {
 			break
 		}
 		isContract := false
@@ -239,26 +242,31 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 			}
 		}
 	}
+
+	//identicalTxs := []int
+	//i, j := 0
+	//
+
 	fmt.Println("addrInconsistency:", addrInconsistency, addrInconsistencyTxs)
 	fmt.Println("slotInconsistency:", slotInconsistency, slotInconsistencyTxs)
-	for _, i := range addrInconsistencyTxs {
-		accessNormal, accessChu := (*accessAddrNormal)[i], (*accessAddrChu)[i]
-		for addr, slotNormal := range *accessNormal {
-			fmt.Println(i, addr, slotNormal.IsRead, slotNormal.IsWrite, txs[i].Hash())
-		}
-		fmt.Println()
-		for addr, slotChu := range *accessChu {
-			fmt.Println(i, addr, slotChu.IsRead, slotChu.IsWrite, txs[i].Hash())
-		}
-		fmt.Println()
-		fmt.Println()
-	}
+	//for _, i := range addrInconsistencyTxs {
+	//	accessNormal, accessChu := (*accessAddrNormal)[i], (*accessAddrChu)[i]
+	//	for addr, slotNormal := range *accessNormal {
+	//		fmt.Println(i, addr, slotNormal.IsRead, slotNormal.IsWrite, txs[i].Hash())
+	//	}
+	//	fmt.Println()
+	//	for addr, slotChu := range *accessChu {
+	//		fmt.Println(i, addr, slotChu.IsRead, slotChu.IsWrite, txs[i].Hash())
+	//	}
+	//	fmt.Println()
+	//	fmt.Println()
+	//}
 }
 
 func main() {
 	//replayTransactions()
-	for i := 0; i < 100; i++ {
-		compare()
-	}
-	//compare()
+	//for i := 0; i < 100; i++ {
+	//	compare()
+	//}
+	compare()
 }

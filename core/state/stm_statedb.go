@@ -138,11 +138,12 @@ func (s *StmStateDB) Database() Database {
 // GetState retrieves a value from the given account's storage trie.
 func (s *StmStateDB) GetState(addr common.Address, hash common.Hash, txIndex, txIncarnation int) *SSlot {
 	stmStateObject := s.getDeletedStateObject(addr)
-	stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
-	if stmStateObject != nil && !stateAccount.deleted {
-		//if !stateAccount.deleted {
-		return stmStateObject.GetState(s.db, hash, txIndex, txIncarnation)
-		//}
+	//stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
+	if stmStateObject != nil {
+		stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
+		if !stateAccount.deleted {
+			return stmStateObject.GetState(s.db, hash, txIndex, txIncarnation)
+		}
 	}
 	return nil
 	//return &SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}

@@ -74,9 +74,14 @@ func (s *stmTxStateObject) GetState(key common.Hash) common.Hash {
 	}
 	// 否则需并发的从statedb中读取
 	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
-	txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-	s.originStorage[key] = &SSlot{Value: common.BytesToHash(common.CopyBytes(oldSSlot.Value.Bytes())), TxInfo: txInfo}
-	return oldSSlot.Value
+	if oldSSlot != nil {
+		txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
+		s.originStorage[key] = &SSlot{Value: common.BytesToHash(common.CopyBytes(oldSSlot.Value.Bytes())), TxInfo: txInfo}
+		return oldSSlot.Value
+	} else {
+		return common.Hash{}
+	}
+
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
@@ -88,9 +93,13 @@ func (s *stmTxStateObject) GetCommittedState(key common.Hash) common.Hash {
 	}
 	// 否则需并发的从statedb中读取
 	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
-	txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-	s.originStorage[key] = &SSlot{Value: oldSSlot.Value, TxInfo: txInfo}
-	return oldSSlot.Value
+	if oldSSlot != nil {
+		txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
+		s.originStorage[key] = &SSlot{Value: oldSSlot.Value, TxInfo: txInfo}
+		return oldSSlot.Value
+	} else {
+		return common.Hash{}
+	}
 }
 
 // SetState updates a value in account storage.
