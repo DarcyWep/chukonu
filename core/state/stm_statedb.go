@@ -140,10 +140,8 @@ func (s *StmStateDB) GetState(addr common.Address, hash common.Hash, txIndex, tx
 	stmStateObject := s.getDeletedStateObject(addr)
 	stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
 	if stmStateObject != nil && !stateAccount.deleted {
-
 		//if !stateAccount.deleted {
-		sslot := stmStateObject.GetState(s.db, hash, txIndex, txIncarnation)
-		return sslot.Copy()
+		return stmStateObject.GetState(s.db, hash, txIndex, txIncarnation)
 		//}
 	}
 	return nil
@@ -562,13 +560,12 @@ func (s *StmStateDB) Validation(valObjects map[common.Address]*stmTxStateObject,
 			//if txIndex == 11 {
 			//	fmt.Println(txIndex, addr, key, value)
 			//}
-			newSSlot := SSlot{Value: value, TxInfo: TxInfoMini{Index: txIndex, Incarnation: txIncarnation}}
 
 			if _, dirty := obj.dirtyStorage[key]; !dirty { // 原先没有写入
 				obj.dirtyStorage[key] = newEmptySlot()
 			}
 			slot := obj.dirtyStorage[key]
-			slot.Value = append(slot.Value, newSSlot)
+			slot.Value = append(slot.Value, &SSlot{Value: value, TxInfo: TxInfoMini{Index: txIndex, Incarnation: txIncarnation}})
 			slot.len += 1
 			//if txIndex == 11 {
 			//	fmt.Println(obj.dirtyStorage[key].Value[obj.dirtyStorage[key].len-1].Value)

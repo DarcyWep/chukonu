@@ -33,6 +33,13 @@ type SSlot struct {
 	TxInfo TxInfoMini
 }
 
+func newSSlot(value common.Hash, txInfo TxInfoMini) *SSlot {
+	return &SSlot{
+		Value:  value,
+		TxInfo: txInfo.Copy(),
+	}
+}
+
 func (slot *SSlot) Copy() *SSlot {
 	return &SSlot{
 		Value:  common.BytesToHash(common.CopyBytes(slot.Value.Bytes())),
@@ -41,38 +48,33 @@ func (slot *SSlot) Copy() *SSlot {
 }
 
 type Slot struct {
-	Value []SSlot
+	Value []*SSlot
 	len   int
 }
 
 // newSlot, 初始化为从leveldb中读取
-func newSlot(value common.Hash) *Slot {
-	s := &Slot{
-		Value: make([]SSlot, 0),
-		len:   1,
+func newEmptySlot() *Slot {
+	return &Slot{
+		Value: make([]*SSlot, 0),
+		len:   0,
 	}
-	// 初始化为 -1, 无效为-2
-	s.Value = append(s.Value, SSlot{Value: value, TxInfo: TxInfoMini{Index: -1, Incarnation: -1}})
-	return s
 }
 
 // newSlot, 初始化为从leveldb中读取
-func newEmptySlot() *Slot {
-	s := &Slot{
-		Value: make([]SSlot, 0),
-		len:   0,
-	}
+func newSlot(value common.Hash) *Slot {
+	s := newEmptySlot()
+	// 初始化为 -1, 无效为-2
+	s.Value = append(s.Value, newSSlot(value, TxInfoMini{Index: -1, Incarnation: -1}))
+	s.len += 1
 	return s
 }
 
 func (s *Slot) Copy() *Slot {
-	cpSlot := &Slot{
-		Value: make([]SSlot, 0),
-		len:   s.len,
-	}
+	cpSlot := newEmptySlot()
 	for _, value := range s.Value {
-		cpSlot.Value = append(cpSlot.Value, SSlot{Value: value.Value, TxInfo: value.TxInfo.Copy()})
+		cpSlot.Value = append(cpSlot.Value, &SSlot{Value: value.Value, TxInfo: value.TxInfo.Copy()})
 	}
+	cpSlot.len = s.len
 	return cpSlot
 }
 
@@ -132,12 +134,16 @@ type StmStateAccount struct {
 	len          int
 }
 
+func newEmptyStmStateAccount() *StmStateAccount {
+	return &StmStateAccount{
+		StateAccount: make([]*SStateAccount, 0),
+		len:          0,
+	}
+}
+
 // newStmStateAccount 新建一个空的，或者是从leveldb中读取
 func newStmStateAccount(data *types.StateAccount, statedb *StmStateDB, addrHash common.Hash) *StmStateAccount {
-	sa := &StmStateAccount{
-		StateAccount: make([]*SStateAccount, 0),
-		len:          1,
-	}
+	sa := newEmptyStmStateAccount()
 	// 初始阶段为 -1, 无效为-2
 	stateAccount := newSStateAccount(data, nil, false, false, false, TxInfoMini{Index: -1, Incarnation: -1})
 	// 该地址为合约地址，则需提取Code
@@ -149,6 +155,7 @@ func newStmStateAccount(data *types.StateAccount, statedb *StmStateDB, addrHash 
 		stateAccount.Code = common.CopyBytes(code)
 	}
 	sa.StateAccount = append(sa.StateAccount, stateAccount)
+	sa.len += 1
 	return sa
 }
 
@@ -218,13 +225,12 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 	if data.Root == (common.Hash{}) {
 		data.Root = types.EmptyRootHash
 	}
-	stmAccount := newStmStateAccount(&data, db, crypto.Keccak256Hash(address[:]))
 
 	return &stmStateObject{
 		db:             db,
 		address:        address,
 		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           stmAccount,
+		data:           newStmStateAccount(&data, db, crypto.Keccak256Hash(address[:])),
 		originStorage:  make(StmStorage),
 		pendingStorage: make(StmStorage),
 		dirtyStorage:   make(StmStorage),
@@ -232,16 +238,11 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 }
 
 func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObject {
-	stmAccount := &StmStateAccount{
-		StateAccount: make([]*SStateAccount, 0),
-		len:          0,
-	}
-
 	return &stmStateObject{
 		db:             db,
 		address:        address,
 		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           stmAccount,
+		data:           newEmptyStmStateAccount(),
 		originStorage:  make(StmStorage),
 		pendingStorage: make(StmStorage),
 		dirtyStorage:   make(StmStorage),
@@ -250,7 +251,7 @@ func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObjec
 
 // EncodeRLP implements rlp.Encoder.
 func (s *stmStateObject) EncodeRLP(w io.Writer) error {
-	return rlp.Encode(w, &s.data.StateAccount[s.data.len-1].StateAccount)
+	return rlp.Encode(w, s.data.StateAccount[s.data.len-1].StateAccount)
 }
 
 // getTrie returns the associated storage trie. The trie will be opened
@@ -278,30 +279,27 @@ func (s *stmStateObject) getTrie(db Database) (Trie, error) {
 }
 
 // GetState retrieves a value from the account storage trie.
-func (s *stmStateObject) GetState(db Database, key common.Hash, txIndex, txIncarnation int) (sslot SSlot) {
+func (s *stmStateObject) GetState(db Database, key common.Hash, txIndex, txIncarnation int) *SSlot {
 	// If we have a dirty value for this state entry, return it
 	slot, dirty := s.dirtyStorage[key]
 	if dirty {
-		sslot = slot.Value[slot.len-1]
-		return
+		return slot.Value[slot.len-1].Copy()
 	}
 	// Otherwise return the entry's original value, 需要从db中获取
 	return s.GetCommittedState(db, key, txIndex, txIncarnation)
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
-func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex, txIncarnation int) (sslot SSlot) {
+func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex, txIncarnation int) *SSlot {
 	// If we have a pending write or clean cached, return that
 	if slot, pending := s.pendingStorage[key]; pending {
-		sslot = slot.Value[slot.len-1]
-		return
+		return slot.Value[slot.len-1].Copy()
 	}
 	s.originMutex.Lock()
 	slot, cached := s.originStorage[key]
 	s.originMutex.Unlock()
 	if cached {
-		sslot = slot.Value[slot.len-1]
-		return
+		return slot.Value[slot.len-1].Copy()
 	}
 	// If the object was destructed in *this* block (and potentially resurrected),
 	// the storage has been cleared out, and we should *not* consult the previous
@@ -310,8 +308,7 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 	//      have been handles via pendingStorage above.
 	//   2) we don't have new values, and can deliver empty response back
 	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
-		sslot = SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}
-		return
+		return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
 	}
 	// If no live objects are available, attempt to use snapshots
 	var (
@@ -331,8 +328,7 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		tr, err := s.getTrie(db)
 		if err != nil {
 			s.db.setError(err)
-			sslot = SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}
-			return
+			return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
 		}
 		enc, err = tr.TryGet(key.Bytes())
 		if metrics.EnabledExpensive {
@@ -340,8 +336,7 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		}
 		if err != nil {
 			s.db.setError(err)
-			sslot = SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}
-			return
+			return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
 		}
 	}
 	var value common.Hash
@@ -352,19 +347,18 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		}
 		value.SetBytes(content)
 	}
-	slot = newSlot(value)
+	newSlot1 := newSlot(value)
 	s.originMutex.Lock()
-	nSlot, ok := s.originStorage[key]
+	newSlot2, ok := s.originStorage[key]
 	if !ok {
-		s.originStorage[key] = slot
+		s.originStorage[key] = newSlot1
 	}
 	s.originMutex.Unlock()
 	if ok {
-		sslot = nSlot.Value[nSlot.len-1]
+		return newSlot2.Value[newSlot2.len-1].Copy()
 	} else {
-		sslot = slot.Value[slot.len-1]
+		return newSlot1.Value[newSlot1.len-1].Copy()
 	}
-	return
 }
 
 // finalise moves all dirty storage slots into the pending area to be hashed or
@@ -505,8 +499,7 @@ func (s *stmStateObject) commitTrie(db Database) (*trie.NodeSet, error) {
 }
 
 func (s *stmStateObject) setStateAccount(txObj *stmTxStateObject, txIndex, txIncarnation int) {
-	newSStateAccount := newSStateAccount(txObj.data.StateAccount, txObj.data.Code, txObj.data.dirtyCode, txObj.data.suicided, txObj.data.deleted, TxInfoMini{Index: txIndex, Incarnation: txIncarnation})
-	s.data.StateAccount = append(s.data.StateAccount, newSStateAccount)
+	s.data.StateAccount = append(s.data.StateAccount, newSStateAccount(txObj.data.StateAccount, txObj.data.Code, txObj.data.dirtyCode, txObj.data.suicided, txObj.data.deleted, TxInfoMini{Index: txIndex, Incarnation: txIncarnation}))
 	s.data.len += 1
 }
 
