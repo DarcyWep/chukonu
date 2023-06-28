@@ -197,9 +197,10 @@ type stmStateObject struct {
 	// Write caches.
 	trie Trie // storage trie, which becomes non-nil on first access
 
-	originMutex    sync.RWMutex
-	dirtyMutex     sync.RWMutex
-	originStorage  StmStorage // StmStorage cache of original entries to dedup rewrites, reset for every transaction
+	originMutex sync.RWMutex
+	dirtyMutex  sync.RWMutex
+	//originStorage  StmStorage // StmStorage cache of original entries to dedup rewrites, reset for every transaction
+	originStorage  sync.Map   // StmStorage cache of original entries to dedup rewrites, reset for every transaction
 	pendingStorage StmStorage // StmStorage entries that need to be flushed to disk, at the end of an entire block
 	dirtyStorage   StmStorage // StmStorage entries that have been modified in the current transaction execution
 }
@@ -216,6 +217,7 @@ func (s *stmStateObject) empty() bool {
 
 // newStmStateObject creates a state object, 开始读读时候会新建
 func newStmStateObject(db *StmStateDB, address common.Address, data types.StateAccount) *stmStateObject {
+	//fmt.Println(address, data.Balance)
 	if data.Balance == nil {
 		data.Balance = new(big.Int)
 	}
@@ -227,11 +229,11 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 	}
 
 	return &stmStateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           newStmStateAccount(&data, db, crypto.Keccak256Hash(address[:])),
-		originStorage:  make(StmStorage),
+		db:       db,
+		address:  address,
+		addrHash: crypto.Keccak256Hash(address[:]),
+		data:     newStmStateAccount(&data, db, crypto.Keccak256Hash(address[:])),
+		//originStorage:  make(StmStorage),
 		pendingStorage: make(StmStorage),
 		dirtyStorage:   make(StmStorage),
 	}
@@ -239,11 +241,11 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 
 func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObject {
 	return &stmStateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           newEmptyStmStateAccount(),
-		originStorage:  make(StmStorage),
+		db:       db,
+		address:  address,
+		addrHash: crypto.Keccak256Hash(address[:]),
+		data:     newEmptyStmStateAccount(),
+		//originStorage:  make(StmStorage),
 		pendingStorage: make(StmStorage),
 		dirtyStorage:   make(StmStorage),
 	}
@@ -296,9 +298,13 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		return slot.Value[slot.len-1].Copy()
 	}
 	s.originMutex.Lock()
-	slot, cached := s.originStorage[key]
-	s.originMutex.Unlock()
+	defer s.originMutex.Unlock()
+	//s.originMutex.Lock()
+	//slot, cached := s.originStorage[key]
+	slot1, cached := s.originStorage.Load(key)
+	//s.originMutex.Unlock()
 	if cached {
+		slot := slot1.(*Slot)
 		return slot.Value[slot.len-1].Copy()
 	}
 	// If the object was destructed in *this* block (and potentially resurrected),
@@ -348,14 +354,18 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		value.SetBytes(content)
 	}
 	newSlot1 := newSlot(value)
-	s.originMutex.Lock()
-	newSlot2, ok := s.originStorage[key]
+	//s.originMutex.Lock()
+	//newSlot2, ok := s.originStorage[key]
+	newSlot2, ok := s.originStorage.Load(key)
 	if !ok {
-		s.originStorage[key] = newSlot1
+		//s.originStorage[key] = newSlot1
+		s.originStorage.LoadOrStore(key, newSlot1)
 	}
-	s.originMutex.Unlock()
+	//s.originMutex.Unlock()
 	if ok {
-		return newSlot2.Value[newSlot2.len-1].Copy()
+		slot := newSlot2.(*Slot)
+		return slot.Value[slot.len-1].Copy()
+		//return newSlot2.Value[newSlot2.len-1].Copy()
 	} else {
 		return newSlot1.Value[newSlot1.len-1].Copy()
 	}
@@ -370,7 +380,9 @@ func (s *stmStateObject) finalise(prefetch bool, txIndex int) {
 		//	fmt.Println(key, dirtySlot.Value[dirtySlot.len-1].Value)
 		//}
 		s.pendingStorage[key] = dirtySlot.Copy()
-		originSlot := s.originStorage[key]
+		//originSlot := s.originStorage[key]
+		originSlot1, _ := s.originStorage.Load(key)
+		originSlot := originSlot1.(*Slot)
 		if dirtySlot.Value[dirtySlot.len-1].Value != originSlot.Value[originSlot.len-1].Value {
 			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
 		}
@@ -411,12 +423,15 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 	usedStorage := make([][]byte, 0, len(s.pendingStorage))
 	for key, pendingSlot := range s.pendingStorage {
 		// Skip noop changes, persist actual changes
-		originSlot := s.originStorage[key]
+		//originSlot := s.originStorage[key]
+		originSlot1, _ := s.originStorage.Load(key)
+		originSlot := originSlot1.(*Slot)
 		pendingValue, originValue := pendingSlot.Value[pendingSlot.len-1].Value, originSlot.Value[originSlot.len-1].Value
 		if pendingValue == originValue {
 			continue
 		}
-		s.originStorage[key] = newSlot(pendingValue)
+		//s.originStorage[key] = newSlot(pendingValue)
+		s.originStorage.Store(key, newSlot(pendingValue))
 
 		var v []byte
 		if (pendingValue == common.Hash{}) {

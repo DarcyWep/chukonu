@@ -257,5 +257,8 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 
 func main() {
 	//replayTransactions()
-	compare()
+	for i := 0; i < 100; i++ {
+		compare()
+	}
+	//compare()
 }
