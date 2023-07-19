@@ -68,6 +68,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 
 	txsAccessAddress := make([]*types.AccessAddressMap, 0)
+	addBalance, _ := new(big.Int).SetString("88_202_766_149_140_549_590", 0)
+	if blockNumber.Cmp(new(big.Int).SetInt64(9776948)) == 0 {
+		statedb.AddBalance(common.HexToAddress("0x5A0b54D5dc17e0AadC383d2db43B0a0D3E029c4c"), new(big.Int).Set(addBalance))
+	}
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		msg, err := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
@@ -77,6 +81,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		statedb.SetTxContext(tx.Hash(), i)
 		receipt, err := applyTransaction(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		if err != nil {
+			fmt.Println("applyTransaction error", tx.Hash(), err)
 			return nil, nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		receipts = append(receipts, receipt)
@@ -88,6 +93,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		//}
 		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
+	statedb.SetTxContext(common.Hash{}, 0) // 避免因叔父区块添加其矿工奖励而导致最后一个交易的读写集变化
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
 	if len(withdrawals) > 0 && !p.config.IsShanghai(block.Time()) {
@@ -95,6 +101,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	accumulateRewards(p.config, statedb, header, block.Uncles())
+	if blockNumber.Cmp(new(big.Int).SetInt64(9776948)) == 0 {
+		statedb.SubBalance(common.HexToAddress("0x5A0b54D5dc17e0AadC383d2db43B0a0D3E029c4c"), new(big.Int).Set(addBalance))
+	}
+	statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
 
 	//root := statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
 	//for i, accessNormal := range txsAccessAddress {

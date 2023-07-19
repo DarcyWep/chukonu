@@ -95,6 +95,28 @@ func replayTransactions() {
 
 const testTxsLen = 10000
 
+func addAccessList2AddrChu(tx *types.Transaction, accessChu *types.AccessAddressMap) {
+	for _, accessList := range tx.AccessList() {
+		addr := accessList.Address
+		if _, ok := (*accessChu)[addr]; !ok {
+			fmt.Println("new Address")
+			(*accessChu)[addr] = types.NewAccessAddress()
+			(*accessChu)[addr].IsRead = true
+			(*accessChu)[addr].IsWrite = true
+		}
+		slots := (*accessChu)[addr].Slots
+		for _, slot := range accessList.StorageKeys {
+			fmt.Println("new Slot")
+			if _, ok := (*slots)[slot]; !ok {
+				(*slots)[slot] = types.NewAccessSlot()
+				(*slots)[slot].IsRead = true
+				(*slots)[slot].IsWrite = true
+			}
+		}
+
+	}
+}
+
 func compare() {
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
 	if err != nil {
@@ -148,10 +170,17 @@ func compare() {
 		}
 
 		_, accessAddrNormalTmp, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
+		//fmt.Println("finish processor", block.Number())
 		accessAddrChuTmp := stmProcessor.ProcessConcurrently(block, stateDb, vm.Config{EnablePreimageRecording: false})
 		accessAddrNormal = append(accessAddrNormal, *accessAddrNormalTmp...)
 		accessAddrChu = append(accessAddrChu, *accessAddrChuTmp...)
 		txs = append(txs, block.Transactions()...)
+		//if i.Cmp(big.NewInt(9776813)) == 0 {
+		//	accessAddrNormal = append(accessAddrNormal, *accessAddrNormalTmp...)
+		//	accessAddrChu = append(accessAddrChu, *accessAddrChuTmp...)
+		//	txs = append(txs, block.Transactions()...)
+		//	break
+		//}
 
 		txsLen += block.Transactions().Len()
 		if txsLen >= testTxsLen { // 对比1000个交易
@@ -172,6 +201,7 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 			break
 		}
 		isContract := false
+		addAccessList2AddrChu(txs[i], (*accessAddrChu)[i])
 		accessChu := (*accessAddrChu)[i]
 		for _, slotNormal := range *accessNormal {
 			//fmt.Println(i, addr, slotNormal.Slots)
@@ -179,12 +209,25 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 				isContract = true
 			}
 		}
+		//if txs[i].Hash() == common.HexToHash("0x8b4d2a4e2d297791dd7da347b351cb6915f909c966afe66558ae452d021c5072") {
+		//	fmt.Println(isContract)
+		//	for addr, slotNormal := range *accessNormal {
+		//		fmt.Println(i, addr, slotNormal.IsRead, slotNormal.IsWrite, slotNormal.Slots)
+		//	}
+		//	fmt.Println()
+		//	for addr, slotChu := range *accessChu {
+		//		fmt.Println(i, addr, slotChu.IsRead, slotChu.IsWrite, slotChu.Slots)
+		//	}
+		//	fmt.Println()
+		//}
+
 		for addr, slotNormal := range *accessNormal {
 			//fmt.Println(i, addr, slotNormal.Slots)
 			//if len(*slotNormal.Slots) != 0 {
 			//	isContract = true
 			//}
 			slotChu, ok := (*accessChu)[addr]
+			//_, ok := (*accessChu)[addr]
 			if !ok { // 正确中有，而模拟的没有，则不一致会影响之后的并发调度，可能造成丢弃；正确中没有，模拟中有，不会影响并发的丢弃
 				addrInconsistency += 1
 				addrInconsistencyTxs = append(addrInconsistencyTxs, i)
@@ -210,6 +253,9 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 
 		for addr, slotNormal := range *accessNormal {
 			slotChu, ok := (*accessChu)[addr]
+			//for addr, _ := range *accessNormal {
+			//	_, ok := (*accessChu)[addr]
+
 			//if !ok && len(slotNormal.Slots) != 0 { // 正确中有，而模拟的没有，则不一致会影响之后的并发调度，可能造成丢弃；正确中没有，模拟中有，不会影响并发的丢弃
 			//	slotInconsistency += 1
 			//	break // 每个交易只统计一次
@@ -223,9 +269,12 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 			//if slotNormal.IsRead && (!slotChu.IsRead && !slotChu.IsWrite) {
 			//
 			//}
+
 			inconsistency := false
 			for key, value := range *slotNormal.Slots {
 				valueChu, ok1 := (*slotChu.Slots)[key]
+				//for key, _ := range *slotNormal.Slots {
+				//	_, ok1 := (*slotChu.Slots)[key]
 				if !ok1 {
 					inconsistency = true
 					break
@@ -243,12 +292,71 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 		}
 	}
 
-	//identicalTxs := []int
-	//i, j := 0
-	//
+	identicalTxs := make([]int, 0)
+	onlyAddrTxs := make([]int, 0)
+	i, j, iLen, jLen := 0, 0, len(addrInconsistencyTxs), len(slotInconsistencyTxs)
+	if iLen > 0 && jLen > 0 {
+		for {
+			if addrInconsistencyTxs[i] == slotInconsistencyTxs[j] {
+				identicalTxs = append(identicalTxs, addrInconsistencyTxs[i])
+				i += 1
+				j += 1
+			} else if addrInconsistencyTxs[i] < slotInconsistencyTxs[j] {
+				onlyAddrTxs = append(onlyAddrTxs, addrInconsistencyTxs[i])
+				i += 1
+			} else {
+				j += 1
+			}
+			if i == iLen || j == jLen {
+				break
+			}
+		}
+	}
 
-	fmt.Println("addrInconsistency:", addrInconsistency, addrInconsistencyTxs)
-	fmt.Println("slotInconsistency:", slotInconsistency, slotInconsistencyTxs)
+	//fmt.Println("addrInconsistency:", addrInconsistency, addrInconsistencyTxs)
+	//fmt.Println("slotInconsistency:", slotInconsistency, slotInconsistencyTxs)
+	//fmt.Println("identical:", len(identicalTxs))
+	fmt.Println("addrInconsistency:", addrInconsistency)
+	fmt.Println("slotInconsistency:", slotInconsistency)
+	fmt.Println("identical:", len(identicalTxs))
+	//for _, txIndex := range onlyAddrTxs {
+	//	fmt.Println(txs[txIndex].Hash())
+	//}
+
+	//funcMap := make(map[string]int)
+	////for _, txIndex := range slotInconsistencyTxs {
+	//for _, txIndex := range addrInconsistencyTxs {
+	//	input := txs[txIndex].Data()
+	//	if len(input) < 4 {
+	//		fmt.Println("len(input) < 4", txs[txIndex].Hash())
+	//		continue
+	//	}
+	//	funcStr := common.Bytes2Hex(input[:4])
+	//	if funcStr == setting.TransferKey {
+	//		fmt.Println("funcStr == setting.TransferKey", txs[txIndex].Hash())
+	//	}
+	//	if _, ok := funcMap[funcStr]; !ok {
+	//		funcMap[funcStr] = 1
+	//	} else {
+	//		funcMap[funcStr] += 1
+	//	}
+	//}
+	//
+	//type txsByAddr struct {
+	//	key string
+	//	num int
+	//}
+	//var listTxsByAddr []txsByAddr
+	//for key, vch := range funcMap {
+	//	listTxsByAddr = append(listTxsByAddr, txsByAddr{key, vch})
+	//}
+	//sort.Slice(listTxsByAddr, func(i, j int) bool {
+	//	return listTxsByAddr[i].num > listTxsByAddr[j].num // 降序
+	//})
+	//for _, val := range listTxsByAddr {
+	//	fmt.Println(val.key, val.num)
+	//}
+
 	//for _, i := range addrInconsistencyTxs {
 	//	accessNormal, accessChu := (*accessAddrNormal)[i], (*accessAddrChu)[i]
 	//	for addr, slotNormal := range *accessNormal {
@@ -269,4 +377,7 @@ func main() {
 	//	compare()
 	//}
 	compare()
+	//fmt.Println(common.Hex2Bytes("0000000000000000000000000000000000000000000000000000000000000001"))
+	//fmt.Println(len("0000000000000000000000008f20a07e0541ca2db9152d7e521aee5d639b211d0000000000000000000000000000000000000000000000c893d09c8f51500000"))
+	//fmt.Println(len("000000000000000000000000a220f79928906b33ecc80d4d53fa1d750ffb161e000000000000000000000000000000000000000000000000000000012a05f200"))
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"chukonu/ethdb"
+	"chukonu/setting"
 	"sync"
 
 	"chukonu/core/state"
@@ -106,8 +107,11 @@ func (p *StmStateProcessor) ProcessConcurrently(block *types.Block, stmStateDB *
 		txsLen           = block.Transactions().Len()
 		txsAccessAddress = make([]*types.AccessAddressMap, txsLen)
 		wg               sync.WaitGroup
-		accessAddrChan   = make(chan *accessAddressChStruct, 1024)
+		accessAddrChan   = make(chan *accessAddressChStruct, 2048)
 	)
+	if txsLen == 0 {
+		return &txsAccessAddress
+	}
 	blockContext := NewEVMBlockContext(header, p.chainDb, nil)
 	// Iterate over and process the individual transactions
 	wg.Add(txsLen)
@@ -116,8 +120,14 @@ func (p *StmStateProcessor) ProcessConcurrently(block *types.Block, stmStateDB *
 	}
 	received := 0
 	for aam := range accessAddrChan {
+		//if header.Number.Cmp(new(big.Int).SetInt64(9776907)) == 0 {
+		//	fmt.Println(aam.index)
+		//}
 		txsAccessAddress[aam.index] = aam.aam
 		received += 1
+		//if header.Number.Cmp(new(big.Int).SetInt64(9776907)) == 0 {
+		//	fmt.Println(received, txsLen)
+		//}
 		if received == txsLen {
 			close(accessAddrChan)
 		}
@@ -149,10 +159,27 @@ func (p *StmStateProcessor) applyConcurrent(header *types.Header, tx *types.Tran
 	// 避免Nonce错误
 	stmTxDB.SetNonce(msg.From, msg.Nonce)
 
-	receipt, err := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
-	if err != nil {
-		fmt.Println(err)
+	// 避免Balance错误
+	mgval := new(big.Int).SetUint64(msg.GasLimit)
+	mgval = mgval.Mul(mgval, msg.GasPrice)
+	balanceCheck := mgval
+	if msg.GasFeeCap != nil {
+		balanceCheck = new(big.Int).SetUint64(msg.GasLimit)
+		balanceCheck = balanceCheck.Mul(balanceCheck, msg.GasFeeCap)
+		balanceCheck.Add(balanceCheck, msg.Value)
 	}
+	stmTxDB.AddBalance(msg.From, balanceCheck)
+
+	// 避免Transfer错误
+	newData, ok := setting.IsERCTransfer(msg.Data)
+	if ok {
+		msg.Data = common.CopyBytes(newData)
+	}
+
+	receipt, _ := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
 	receipts = append(receipts, receipt)
 	//allLogs = append(allLogs, receipt.Logs...)
 
