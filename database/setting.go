@@ -23,10 +23,12 @@ func defaultRawConfig() *RawConfig {
 		}
 	} else {
 		return &RawConfig{
-			Path:      "/experiment/ethereum/geth/chaindata",
-			Cache:     2048,
-			Handles:   5120,
-			Ancient:   "/experiment/ethereum/geth/chaindata/ancient",
+			//Path:      "/experiment/ethereum/geth/chaindata",
+			Path:    "/experiment/mysql/ethereum/geth/chaindata",
+			Cache:   2048,
+			Handles: 5120,
+			//Ancient:   "/experiment/ethereum/geth/chaindata/ancient",
+			Ancient:   "/experiment/mysql/ethereum/geth/chaindata/ancient",
 			Namespace: "eth/db/chaindata/",
 			ReadOnly:  false,
 		}
@@ -48,8 +50,9 @@ func defaultStateDBConfig() *StateDBConfig {
 		}
 	} else {
 		return &StateDBConfig{
-			Cache:     614,
-			Journal:   "/experiment/ethereum/geth/triecache",
+			Cache: 614,
+			//Journal:   "/experiment/ethereum/geth/triecache",
+			Journal:   "/experiment/mysql/ethereum/geth/triecache",
 			Preimages: false,
 		}
 	}

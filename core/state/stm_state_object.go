@@ -333,6 +333,7 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		start := time.Now()
 		tr, err := s.getTrie(db)
 		if err != nil {
+			fmt.Println("get trie", err)
 			s.db.setError(err)
 			return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
 		}
@@ -382,9 +383,11 @@ func (s *stmStateObject) finalise(prefetch bool, txIndex int) {
 		s.pendingStorage[key] = dirtySlot.Copy()
 		//originSlot := s.originStorage[key]
 		originSlot1, _ := s.originStorage.Load(key)
-		originSlot := originSlot1.(*Slot)
-		if dirtySlot.Value[dirtySlot.len-1].Value != originSlot.Value[originSlot.len-1].Value {
-			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
+		if originSlot1 != nil {
+			originSlot := originSlot1.(*Slot)
+			if dirtySlot.Value[dirtySlot.len-1].Value != originSlot.Value[originSlot.len-1].Value {
+				slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
+			}
 		}
 	}
 	data := s.data.StateAccount[s.data.len-1].StateAccount
@@ -416,6 +419,7 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 	)
 	tr, err := s.getTrie(db)
 	if err != nil {
+		fmt.Println("get trie", err)
 		s.db.setError(err)
 		return nil, err
 	}
@@ -425,11 +429,15 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 		// Skip noop changes, persist actual changes
 		//originSlot := s.originStorage[key]
 		originSlot1, _ := s.originStorage.Load(key)
-		originSlot := originSlot1.(*Slot)
-		pendingValue, originValue := pendingSlot.Value[pendingSlot.len-1].Value, originSlot.Value[originSlot.len-1].Value
-		if pendingValue == originValue {
-			continue
+		pendingValue := pendingSlot.Value[pendingSlot.len-1].Value
+		if originSlot1 != nil {
+			originSlot := originSlot1.(*Slot)
+			originValue := originSlot.Value[originSlot.len-1].Value
+			if pendingValue == originValue {
+				continue
+			}
 		}
+
 		//s.originStorage[key] = newSlot(pendingValue)
 		s.originStorage.Store(key, newSlot(pendingValue))
 

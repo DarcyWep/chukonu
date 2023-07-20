@@ -8,7 +8,6 @@ import (
 	"chukonu/core/types"
 	"chukonu/core/vm"
 	"chukonu/database"
-	"chukonu/ethdb"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
@@ -22,6 +21,7 @@ func replayTransactions() {
 		return
 	}
 	defer db.Close()
+	//var number uint64 = 12000000
 	var number uint64 = 9776809
 	//var number uint64 = 11090500
 	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
@@ -32,7 +32,7 @@ func replayTransactions() {
 
 	var (
 		parent     *types.Header  = blockPre.Header()
-		parentRoot *common.Hash   = &parent.Root
+		stmRoot    *common.Hash   = &parent.Root
 		stateCache state.Database = database.NewStateCache(db)
 		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
 	)
@@ -46,10 +46,11 @@ func replayTransactions() {
 
 	var hash1106 common.Hash
 	//var hash1106_1 *common.Hash
-	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776811), big.NewInt(1)
+	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776812), big.NewInt(1)
+	//min, max, addSpan := big.NewInt(12000001), big.NewInt(12090000), big.NewInt(1)
 	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
 		stateDb = nil
-		stateDb, _ = state.NewStmStateDB(*parentRoot, stateCache, snaps) // 每个区块重新构建statedb以释放内存
+		stateDb, _ = state.NewStmStateDB(*stmRoot, stateCache, snaps) // 每个区块重新构建statedb以释放内存
 
 		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
 		if err2 != nil {
@@ -57,38 +58,42 @@ func replayTransactions() {
 			return
 		}
 		statePre, _ := state.New(parent.Root, stateCache, snaps)
-		_, _, _, _, _, _ = processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
+		primitiveRoot, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
 
 		hash1106 = block.Root()
-		parentRoot, _, _, _, err = stmProcessor.Process(block, stateDb, vm.Config{EnablePreimageRecording: false})
-		if err != nil {
-			fmt.Println("process error", err)
-			return
-		}
-
-		// Commit all cached state changes into underlying memory database.
-		root, err := stateDb.Commit(config.MainnetChainConfig.IsEIP158(block.Number()))
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		stateCache.TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
-
-		// If we exceeded our memory allowance, flush matured singleton nodes to disk
-		var (
-			nodes, imgs = stateCache.TrieDB().Size()
-			limit       = common.StorageSize(256) * 1024 * 1024
-		)
-		if nodes > limit || imgs > 4*1024*1024 {
-			stateCache.TrieDB().Cap(limit - ethdb.IdealBatchSize)
-		}
-
-		stateCache.TrieDB().Dereference(parent.Root)
+		stmRoot, _, _, _, err = stmProcessor.Process(block, stateDb, vm.Config{EnablePreimageRecording: false})
+		//if err != nil {
+		//	fmt.Println("process error", err)
+		//	return
+		//}
+		//
+		//// Commit all cached state changes into underlying memory database.
+		_, _ = statePre.Commit(config.MainnetChainConfig.IsEIP158(block.Number()))
+		r, _ := stateDb.Commit(config.MainnetChainConfig.IsEIP158(block.Number()))
+		stmRoot = &r
+		//if err != nil {
+		//	fmt.Println(err)
+		//	return
+		//}
+		//stateCache.TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
+		//
+		//// If we exceeded our memory allowance, flush matured singleton nodes to disk
+		//var (
+		//	nodes, imgs = stateCache.TrieDB().Size()
+		//	limit       = common.StorageSize(256) * 1024 * 1024
+		//)
+		//if nodes > limit || imgs > 4*1024*1024 {
+		//	stateCache.TrieDB().Cap(limit - ethdb.IdealBatchSize)
+		//}
+		//
+		//stateCache.TrieDB().Dereference(parent.Root)
 		parent = block.Header()
 		//fmt.Println(hash1106.Hex())
 		//fmt.Println(hash1106_1.Hex())
-		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == root, *parentRoot == root)
+		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == *primitiveRoot, hash1106 == *stmRoot)
+		//fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == root, *stmRoot == hash1106)
 		//fmt.Println()
+		//break
 	}
 
 }
@@ -372,11 +377,11 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 }
 
 func main() {
-	//replayTransactions()
+	replayTransactions()
 	//for i := 0; i < 100; i++ {
 	//	compare()
 	//}
-	compare()
+	//compare()
 	//fmt.Println(common.Hex2Bytes("0000000000000000000000000000000000000000000000000000000000000001"))
 	//fmt.Println(len("0000000000000000000000008f20a07e0541ca2db9152d7e521aee5d639b211d0000000000000000000000000000000000000000000000c893d09c8f51500000"))
 	//fmt.Println(len("000000000000000000000000a220f79928906b33ecc80d4d53fa1d750ffb161e000000000000000000000000000000000000000000000000000000012a05f200"))

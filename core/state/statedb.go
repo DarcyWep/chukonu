@@ -971,6 +971,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 // used when the EVM emits new state logs. It should be invoked before
 // transaction execution.
 func (s *StateDB) SetTxContext(thash common.Hash, ti int) {
+	//fmt.Println(s)
 	s.thash = thash
 	s.txIndex = ti
 	s.accessAddress = types.NewAccessAddressMap()
