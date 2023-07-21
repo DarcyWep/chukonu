@@ -1,6 +1,8 @@
 package setting
 
 import (
+	"bytes"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
@@ -63,4 +65,28 @@ const (
 	SwapExactETHForTokensKey    = "7ff36ab5"
 	SwapExactTokensForTokensKey = "38ed1739"
 	SwapExactTokensForETHKey    = "18cbafe5"
+
+	slotValueLen = 32
 )
+
+func IsERCTransfer(input []byte) ([]byte, bool) {
+	if len(input) < 4 {
+		return []byte(""), false
+	}
+	if common.Bytes2Hex(input[:4]) == TransferKey {
+		//parameter
+		parameters := input[4:]
+		if len(parameters) != 64 { // 超过或少于两个参数则不是transfer
+			return []byte(""), false
+		}
+		if bytes.Equal(parameters[slotValueLen:], common.Hex2Bytes("0000000000000000000000000000000000000000000000000000000000000000")) {
+			return []byte(""), false
+		}
+		newInput := input[:4]
+		newInput = append(newInput, parameters[:slotValueLen]...)
+		newInput = append(newInput, common.Hex2Bytes("0000000000000000000000000000000000000000000000000000000000000001")...)
+		//fmt.Println(len(input[4:4+slotValueLen]), common.Bytes2Hex(input[4:]))
+		return newInput, true
+	}
+	return []byte(""), false
+}

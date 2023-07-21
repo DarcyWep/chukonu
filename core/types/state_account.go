@@ -49,5 +49,3 @@ func NewStateAccount(nonce uint64, balance *big.Int, root common.Hash, codeHash 
 		CodeHash: common.CopyBytes(codeHash),
 	}
 }
-
-//s

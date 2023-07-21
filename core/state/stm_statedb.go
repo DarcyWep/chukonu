@@ -2,19 +2,20 @@ package state
 
 import (
 	"bytes"
-	"fmt"
-	"math/big"
-	"sync"
-	"time"
-
 	"chukonu/core/rawdb"
 	"chukonu/core/state/snapshot"
 	"chukonu/core/types"
 	"chukonu/trie"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	"math/big"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 )
 
 // StmStateDB structs within the ethereum protocol are used to store anything
@@ -39,12 +40,14 @@ type StmStateDB struct {
 	snapStorage  map[common.Hash]map[common.Hash][]byte
 
 	// This map holds 'live' objects, which will get modified while processing a state transition.
-	objectMutex sync.RWMutex
-	//stateObjects map[common.Address]*stmStateObject
-	stateObjects         sync.Map
+	objectMutex          sync.RWMutex
+	stateObjects         sync.Map                    // map[common.Address]*stmStateObject
 	stateObjectsPending  map[common.Address]struct{} // State objects finalized but not yet written to the trie
 	stateObjectsDirty    map[common.Address]struct{} // State objects modified in the current execution
-	stateObjectsDestruct map[common.Address]struct{} // State objects destructed in the block
+	stateObjectsDestruct map[common.Address]struct{} // State objects destructed in the block (contract destruction)
+
+	lastWrites sync.Map // map[int][]*Location
+	lastReads  sync.Map // map[int][]*ReadLoc
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -73,6 +76,72 @@ type StmStateDB struct {
 	StorageUpdated int
 	AccountDeleted int
 	StorageDeleted int
+}
+
+type ReadLoc struct {
+	Location *Location
+	Version  *TxInfoMini
+}
+
+type ReadResult struct {
+	Status       int
+	Version      *TxInfoMini
+	BlockingTx   int
+	DirtyState   *stateOperation
+	DirtyStorage *storageOperation
+}
+
+func newReadResult() *ReadResult {
+	return &ReadResult{
+		Status:     -1,
+		Version:    &TxInfoMini{Index: -1, Incarnation: -1},
+		BlockingTx: -1,
+		//DirtyState:   new(stateOperation),
+		//DirtyStorage: new(storageOperation),
+	}
+}
+
+type Location struct {
+	stateAddress  common.Address
+	storageSlot   common.Hash
+	storageMarker bool
+}
+
+func (loc *Location) Address() (common.Address, common.Hash) {
+	return loc.stateAddress, loc.storageSlot
+}
+
+func newLocation(stateAddress common.Address, storageSlot *common.Hash) *Location {
+	storageMarker := false
+	if storageSlot != nil {
+		storageMarker = true
+		newLoc := &Location{
+			stateAddress:  stateAddress,
+			storageSlot:   *storageSlot,
+			storageMarker: storageMarker,
+		}
+		return newLoc
+	}
+	return &Location{
+		stateAddress:  stateAddress,
+		storageSlot:   common.Hash{},
+		storageMarker: storageMarker,
+	}
+}
+
+func (loc *Location) exist(compared []*Location) bool {
+	for _, l := range compared {
+		if strings.Compare(loc.stateAddress.Hex(), l.stateAddress.Hex()) == 0 {
+			if !loc.storageMarker && !l.storageMarker {
+				return true
+			} else if loc.storageMarker && l.storageMarker {
+				if strings.Compare(loc.storageSlot.Hex(), l.storageSlot.Hex()) == 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // NewStmStateDB creates a new state from a given trie.
@@ -136,40 +205,257 @@ func (s *StmStateDB) Database() Database {
 }
 
 // GetState retrieves a value from the given account's storage trie.
-func (s *StmStateDB) GetState(addr common.Address, hash common.Hash, txIndex, txIncarnation int) *SSlot {
-	stmStateObject := s.getDeletedStateObject(addr)
-	//stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
-	if stmStateObject != nil {
-		stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
-		if !stateAccount.deleted {
-			return stmStateObject.GetState(s.db, hash, txIndex, txIncarnation)
-		}
-	}
-	return nil
-	//return &SSlot{Value: common.Hash{}, TxInfo: TxInfoMini{Index: -2, Incarnation: -2}}
-}
-
-//func (s *StmStateDB) SetState(addr common.Address, key, value common.Hash) {
-//	stmStateObject := s.GetOrNewStateObject(addr)
+//func (s *StmStateDB) GetState(addr common.Address, hash common.Hash, txIndex, txIncarnation int) common.Hash {
+//	stmStateObject, _ := s.getDeletedStateObject(addr)
 //	if stmStateObject != nil {
-//		stmStateObject.SetState(s.db, key, value)
+//		stateAccount := stmStateObject.data.StateAccount[stmStateObject.data.len-1]
+//		if !stateAccount.deleted {
+//			return stmStateObject.GetCommittedState(s.db, hash, txIndex, txIncarnation)
+//		}
 //	}
+//	return nil
 //}
 
-func (s *StmStateDB) getStateAccount(addr common.Address, txIndex, txIncarnation int) *SStateAccount {
-	if obj := s.getDeletedStateObject(addr); obj != nil {
-		stateAccount := obj.data.StateAccount[obj.data.len-1]
-		if !stateAccount.deleted {
-			return stateAccount.Copy()
+// Record updates the read and write sets of a new incarnation of tx
+func (s *StmStateDB) Record(ver *TxInfoMini, readSet []*ReadLoc, writeSet WriteSets) bool {
+	s.lastReads.Store(ver.Index, readSet)
+	wroteNew := s.updateWrittenLocations(ver.Index, writeSet)
+	s.applyWrites(ver.Index, ver.Incarnation, writeSet)
+	return wroteNew
+}
+
+// MarkEstimates marks the last written locations 'estimate' after being aborted
+func (s *StmStateDB) MarkEstimates(index int) {
+	value, _ := s.lastWrites.Load(index)
+	prevLocations := value.([]*Location)
+	for _, loc := range prevLocations {
+		if v, exist := s.stateObjects.Load(loc.stateAddress); exist {
+			obj := v.(*stmStateObject)
+			if loc.storageMarker {
+				obj.setStorageEstimate(index, loc.storageSlot)
+			} else {
+				obj.setStateEstimate(index)
+			}
 		}
 	}
-	return nil
 }
+
+// readStorageVersion reads the latest version at a specific account address
+func (s *StmStateDB) readStateVersion(addr common.Address, index int) *ReadResult {
+	var txIndexes []int
+	res := newReadResult()
+
+	if obj := s.getDeletedStateObject(addr); obj != nil {
+		obj.multiVersionState.Range(func(key, value any) bool {
+			id := key.(int)
+			// find the maximum id smaller than the current tx index
+			if id < index {
+				txIndexes = append(txIndexes, id)
+			}
+			return true
+		})
+
+		// initially loads the snapshot state (initial version is set to -1)
+		if len(txIndexes) == 0 {
+			res.Status = NOT_FOUND
+			op := &stateOperation{
+				incarnation: -1,
+				account:     obj.data,
+				estimate:    false,
+			}
+			obj.multiVersionState.Store(-1, op)
+			res.DirtyState = op
+			return res
+		}
+
+		sort.Ints(txIndexes)
+		maxIndex := txIndexes[len(txIndexes)-1]
+		v, _ := obj.multiVersionState.Load(maxIndex)
+		op := v.(*stateOperation)
+		if op.estimate == true {
+			// if the latest version is aborted
+			res.Status = READ_ERROR
+			res.BlockingTx = maxIndex
+		} else if op.estimate == false && !op.account.deleted {
+			res.Status = READ_OK
+		}
+		res.Version = &TxInfoMini{Index: maxIndex, Incarnation: op.incarnation}
+		res.DirtyState = op
+	}
+	// the status is -1 when the state object does not exist
+	return res
+}
+
+// readStorageVersion reads the latest version at a specific storage slot
+func (s *StmStateDB) readStorageVersion(addr common.Address, hash common.Hash, index int) *ReadResult {
+	var txIndexes []int
+	res := newReadResult()
+	// Tx that creates a contract account may be aborted after the first incarnation,
+	// it leads to that the account data in the corresponding object equals nil (fail to update writes).
+	// To avoid read the nil account data at the subsequent incarnations,
+	// we stipulate that the normal read can only be conducted if the data is not nil.
+	if obj := s.getDeletedStateObject(addr); obj != nil && obj.data.StateAccount != nil {
+		obj.mvStorageMutex.Lock()
+		defer obj.mvStorageMutex.Unlock()
+		smap, ok := obj.multiVersionStorage[hash]
+		if !ok {
+			// initially loads the snapshot storage (initial version is set to -1)
+			res.Status = NOT_FOUND
+			value := obj.GetCommittedState(s.db, hash)
+			op := &storageOperation{
+				incarnation:  -1,
+				storageValue: value,
+				estimate:     false,
+			}
+			smap = make(slotMap)
+			smap[-1] = op
+			obj.multiVersionStorage[hash] = smap
+			res.DirtyStorage = op
+			return res
+		}
+
+		for id := range smap {
+			if id < index {
+				txIndexes = append(txIndexes, id)
+			}
+		}
+		sort.Ints(txIndexes)
+		maxIndex := txIndexes[len(txIndexes)-1]
+		op := smap[maxIndex]
+		// if the latest version is aborted
+		if op.estimate == true {
+			res.Status = READ_ERROR
+			res.BlockingTx = maxIndex
+		} else {
+			res.Status = READ_OK
+		}
+
+		res.Version = &TxInfoMini{Index: maxIndex, Incarnation: op.incarnation}
+		res.DirtyStorage = op
+	}
+	// the status is -1 when the state object does not exist
+	return res
+}
+
+// ValidateReadSet validates the fetched read-set during last execution
+func (s *StmStateDB) ValidateReadSet(index int) bool {
+	v, _ := s.lastReads.Load(index)
+	res := v.([]*ReadLoc)
+	for _, read := range res {
+		var curRes *ReadResult
+		if !read.Location.storageMarker {
+			curRes = s.readStateVersion(read.Location.stateAddress, index)
+		} else {
+			curRes = s.readStorageVersion(read.Location.stateAddress, read.Location.storageSlot, index)
+		}
+		if curRes.Status == READ_ERROR || curRes.Status == NOT_FOUND {
+			return false
+		} else if curRes.Status == READ_OK && !curRes.Version.Compare(read.Version) {
+			return false
+		}
+	}
+	return true
+}
+
+// updateWrittenLocations updates the last written memory locations if a new incarnation of tx writes to new memory locations
+func (s *StmStateDB) updateWrittenLocations(index int, writeSets WriteSets) bool {
+	var (
+		wroteNew  bool
+		locations []*Location
+	)
+
+	// convert writeSets to a set of locations
+	for addr, write := range writeSets {
+		if write.stateModified {
+			loc := newLocation(addr, nil)
+			locations = append(locations, loc)
+		}
+		if write.storageModified {
+			for key := range write.AccessedSlots {
+				loc := newLocation(addr, &key)
+				locations = append(locations, loc)
+			}
+		}
+	}
+
+	value, ok := s.lastWrites.Load(index)
+	if !ok {
+		// the first incarnation of tx
+		wroteNew = true
+	} else {
+		prevLocations := value.([]*Location)
+		for _, loc := range prevLocations {
+			exist := loc.exist(locations)
+			if !exist {
+				// remove this stored entry
+				v, _ := s.stateObjects.Load(loc.stateAddress)
+				obj := v.(*stmStateObject)
+				if loc.storageMarker {
+					obj.mvStorageMutex.Lock()
+					smap, ok2 := obj.multiVersionStorage[loc.storageSlot]
+					if ok2 {
+						if _, noDeleted := smap[index]; noDeleted {
+							delete(smap, index)
+						}
+					}
+					obj.mvStorageMutex.Unlock()
+				} else {
+					obj.multiVersionState.Delete(index)
+				}
+				wroteNew = true
+			}
+		}
+	}
+
+	s.lastWrites.Store(index, locations)
+	return wroteNew
+}
+
+// applyWrites updates state or storage version  according to tx's write sets
+func (s *StmStateDB) applyWrites(index, incarnation int, writeSets WriteSets) {
+	for addr, write := range writeSets {
+		obj := s.getDeletedStateObject(addr)
+		// if the account is newly created in this block
+		if obj == nil {
+			obj = createStmStateObject(s, addr)
+			s.stateObjects.LoadOrStore(addr, obj)
+			if write.stateModified {
+				obj.setState(index, incarnation, write)
+			}
+		} else {
+			if write.stateModified {
+				// Some contract accounts may invoke internal transactions without changing the account states,
+				// yet the modifying operations are logged.
+				if !write.Account.deleted && obj.data.StateAccount != nil && obj.data.StateAccount.Nonce == write.Account.StateAccount.Nonce &&
+					obj.data.StateAccount.Balance.Cmp(write.Account.StateAccount.Balance) == 0 &&
+					bytes.Equal(obj.data.StateAccount.CodeHash, write.Account.StateAccount.CodeHash) {
+				} else {
+					obj.setState(index, incarnation, write)
+				}
+			}
+		}
+		if write.storageModified {
+			obj.setStorage(index, incarnation, write)
+		}
+	}
+}
+
+//func (s *StmStateDB) getStateAccount(addr common.Address, txIndex, txIncarnation int) *SStateAccount {
+//	if obj, _ := s.getDeletedStateObject(addr); obj != nil {
+//		// stateAccount := obj.data.StateAccount[obj.data.len-1]
+//		stateAccount := obj.data.StateAccount[0]
+//		if !stateAccount.deleted {
+//			return stateAccount.Copy()
+//		}
+//	}
+//	return nil
+//}
 
 // getDeletedStateObject is similar to getStateObject, but instead of returning
 // nil for a deleted state object, it returns the actual object with the deleted
 // flag set. This is needed by the state journal to revert to the correct s-
 // destructed object instead of wiping all knowledge about the state object.
+// the boolean value is returned to indicate whether the state can be fetched from the memory
 func (s *StmStateDB) getDeletedStateObject(addr common.Address) *stmStateObject {
 	// Prefer live objects if any is available
 	s.objectMutex.Lock()
@@ -258,7 +544,7 @@ func (s *StmStateDB) updateStateObject(obj *stmStateObject) {
 	}
 	// Encode the account and update the account trie
 	addr := obj.Address()
-	if err := s.trie.TryUpdateAccount(addr, obj.data.StateAccount[obj.data.len-1].StateAccount); err != nil {
+	if err := s.trie.TryUpdateAccount(addr, obj.data.StateAccount); err != nil {
 		s.setError(fmt.Errorf("updateStateObject (%x) error: %v", addr[:], err))
 	}
 
@@ -284,25 +570,36 @@ func (s *StmStateDB) deleteStateObject(obj *stmStateObject) {
 	}
 }
 
+// FinaliseMVMemory finalises the latest states of multi-version state and storage
+func (s *StmStateDB) FinaliseMVMemory() {
+	s.stateObjects.Range(func(key, value interface{}) bool {
+		obj := value.(*stmStateObject)
+		obj.updateAccount()
+		obj.updateStorage()
+		return true
+	})
+}
+
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
-func (s *StmStateDB) Finalise(deleteEmptyObjects bool, txIndex int) {
+func (s *StmStateDB) Finalise(deleteEmptyObjects bool) {
 	addressesToPrefetch := make([][]byte, 0)
 	//for addr := range s.journal.dirties {
 	// 如果 object 中 data的 len 超过1, 或者 data的长度为1时，txIndex 或 Incarnation 不为1
 	s.stateObjects.Range(func(addr1, obj1 interface{}) bool {
 		addr := addr1.(common.Address)
 		obj := obj1.(*stmStateObject)
-		if obj.data.len == 1 && obj.data.StateAccount[0].TxInfo.Index == -1 && len(obj.dirtyStorage) == 0 {
+		//if obj.data.len == 1 && obj.data.StateAccount[0].TxInfo.Index == -1 && len(obj.dirtyStorage) == 0 {
+		if !obj.dirtyMarker {
 			// 如果长度为1，且是从leveldb中读取到的(index = -1), 则非经过修改的结点
 			//if txIndex == 11 && addr == common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7") {
 			//	fmt.Println("len(obj.dirtyStorage):", len(obj.dirtyStorage))
 			//}
 			return true // sync map的遍历, 继续遍历下一个
 		}
-		//fmt.Println(addr)
-		objState := obj.data.StateAccount[obj.data.len-1]
+
+		objState := obj.data
 		if objState.suicided || (deleteEmptyObjects && obj.empty()) {
 			objState.deleted = true
 
@@ -319,17 +616,15 @@ func (s *StmStateDB) Finalise(deleteEmptyObjects bool, txIndex int) {
 				delete(s.snapStorage, obj.addrHash)  // Clear out any previously updated storage data (may be recreated via a resurrect)
 			}
 		} else {
-			obj.finalise(true, txIndex) // Prefetch slots in the background
+			obj.finalise(true) // Prefetch slots in the background
 		}
 		s.stateObjectsPending[addr] = struct{}{}
 		s.stateObjectsDirty[addr] = struct{}{}
-
 		// At this point, also ship the address off to the precacher. The precacher
 		// will start loading tries, and when the change is eventually committed,
 		// the commit-phase will be a lot faster
 		addressesToPrefetch = append(addressesToPrefetch, common.CopyBytes(addr[:])) // Copy needed for closure
-
-		return true // sync map的遍历
+		return true                                                                  // sync map的遍历
 	})
 	//for addr, obj := range s.stateObject { // 只有被修改了，才进入此循环
 	//	//if txIndex == 11 && addr == common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7") {
@@ -378,9 +673,9 @@ func (s *StmStateDB) Finalise(deleteEmptyObjects bool, txIndex int) {
 // IntermediateRoot computes the current root hash of the state trie.
 // It is called in between transactions to get the root hash that
 // goes into transaction receipts.
-func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool, txIndex int) common.Hash {
+func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
-	s.Finalise(deleteEmptyObjects, txIndex)
+	s.Finalise(deleteEmptyObjects)
 
 	// If there was a trie prefetcher operating, it gets aborted and irrevocably
 	// modified after we start retrieving tries. Remove it from the statedb after
@@ -407,7 +702,7 @@ func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool, txIndex int) comm
 		//}
 		obj1, _ := s.stateObjects.Load(addr)
 		obj := obj1.(*stmStateObject)
-		if !obj.data.StateAccount[obj.data.len-1].deleted {
+		if !obj.data.deleted {
 			obj.updateRoot(s.db)
 		}
 	}
@@ -415,8 +710,8 @@ func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool, txIndex int) comm
 	// _untouched_. We can check with the prefetcher, if it can give us a trie
 	// which has the same root, but also has some content loaded into it.
 	if prefetcher != nil {
-		if trie := prefetcher.trie(common.Hash{}, s.originalRoot); trie != nil {
-			s.trie = trie
+		if tr := prefetcher.trie(common.Hash{}, s.originalRoot); tr != nil {
+			s.trie = tr
 		}
 	}
 	usedAddrs := make([][]byte, 0, len(s.stateObjectsPending))
@@ -424,7 +719,7 @@ func (s *StmStateDB) IntermediateRoot(deleteEmptyObjects bool, txIndex int) comm
 		//if obj := s.stateObjects[addr]; obj.data.StateAccount[obj.data.len-1].deleted {
 		obj1, _ := s.stateObjects.Load(addr)
 		obj := obj1.(*stmStateObject)
-		if obj.data.StateAccount[obj.data.len-1].deleted {
+		if obj.data.deleted {
 			s.deleteStateObject(obj)
 			s.AccountDeleted += 1
 		} else {
@@ -453,7 +748,7 @@ func (s *StmStateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		return common.Hash{}, fmt.Errorf("commit aborted due to earlier error: %v", s.dbErr)
 	}
 	// Finalize any pending changes and merge everything into the tries
-	s.IntermediateRoot(deleteEmptyObjects, -1)
+	s.IntermediateRoot(deleteEmptyObjects)
 
 	// Commit objects to the trie, measuring the elapsed time
 	var (
@@ -468,9 +763,9 @@ func (s *StmStateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		//if obj := s.stateObjects[addr]; !obj.data.StateAccount[obj.data.len-1].deleted {
 		obj1, _ := s.stateObjects.Load(addr)
 		obj := obj1.(*stmStateObject)
-		if obj.data.StateAccount[obj.data.len-1].deleted {
+		if obj.data.deleted {
 			// Write any contract code associated with the state object
-			stateAccount := obj.data.StateAccount[obj.data.len-1]
+			stateAccount := obj.data
 			if stateAccount.Code != nil && stateAccount.dirtyCode {
 				rawdb.WriteCode(codeWriter, common.BytesToHash(obj.CodeHash()), stateAccount.Code)
 				stateAccount.dirtyCode = false
@@ -592,50 +887,50 @@ func (s *StmStateDB) convertAccountSet(set map[common.Address]struct{}) map[comm
 	return ret
 }
 
-func (s *StmStateDB) Validation(valObjects map[common.Address]*stmTxStateObject, txIndex, txIncarnation int) {
-	for addr, txObj := range valObjects {
-		//obj, exist := s.stateObjects[addr]
-		obj1, exist := s.stateObjects.Load(addr)
-		if exist {
-			obj := obj1.(*stmStateObject)
-			objData := obj.data.StateAccount[obj.data.len-1]
-			// 没有被删除, 且data一致则state不变
-			if !txObj.data.deleted && txObj.data.StateAccount.Nonce == objData.StateAccount.Nonce &&
-				txObj.data.StateAccount.Balance.Cmp(objData.StateAccount.Balance) == 0 && bytes.Equal(txObj.data.StateAccount.CodeHash, objData.StateAccount.CodeHash) {
-
-			} else {
-				obj.setStateAccount(txObj, txIndex, txIncarnation)
-			}
-		} else {
-			obj := createStmStateObject(s, addr)
-			//fmt.Println(addr, obj)
-			s.stateObjects.LoadOrStore(addr, obj)
-			obj.setStateAccount(txObj, txIndex, txIncarnation)
-		}
-
-		for key, value := range txObj.dirtyStorage {
-			//if txIndex == 11 {
-			//	fmt.Println(txIndex, addr, key, value)
-			//}
-			obj1, _ := s.stateObjects.Load(addr)
-			obj := obj1.(*stmStateObject)
-			if _, dirty := obj.dirtyStorage[key]; !dirty { // 原先没有写入
-				obj.dirtyStorage[key] = newEmptySlot()
-			}
-			slot := obj.dirtyStorage[key]
-			slot.Value = append(slot.Value, &SSlot{Value: value, TxInfo: TxInfoMini{Index: txIndex, Incarnation: txIncarnation}})
-			slot.len += 1
-			//if txIndex == 11 {
-			//	fmt.Println(obj.dirtyStorage[key].Value[obj.dirtyStorage[key].len-1].Value)
-			//}
-		}
-	}
-
-	//if txIndex == 11 {
-	//	obj := s.stateObjects[common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7")]
-	//	fmt.Println("len(obj.dirtyStorage):", len(obj.dirtyStorage))
-	//}
-}
+//func (s *StmStateDB) Validation(valObjects map[common.Address]*stmTxStateObject, txIndex, txIncarnation int) {
+//	for addr, txObj := range valObjects {
+//		//obj, exist := s.stateObjects[addr]
+//		obj1, exist := s.stateObjects.Load(addr)
+//		if exist {
+//			obj := obj1.(*stmStateObject)
+//			objData := obj.data
+//			// 没有被删除, 且data一致则state不变
+//			if !txObj.data.deleted && txObj.data.StateAccount.Nonce == objData.StateAccount.Nonce &&
+//				txObj.data.StateAccount.Balance.Cmp(objData.StateAccount.Balance) == 0 && bytes.Equal(txObj.data.StateAccount.CodeHash, objData.StateAccount.CodeHash) {
+//
+//			} else {
+//				obj.setStateAccount(txObj, txIndex, txIncarnation)
+//			}
+//		} else {
+//			obj := createStmStateObject(s, addr)
+//			//fmt.Println(addr, obj)
+//			s.stateObjects.LoadOrStore(addr, obj)
+//			obj.setStateAccount(txObj, txIndex, txIncarnation)
+//		}
+//
+//		for key, value := range txObj.dirtyStorage {
+//			//if txIndex == 11 {
+//			//	fmt.Println(txIndex, addr, key, value)
+//			//}
+//			obj1, _ := s.stateObjects.Load(addr)
+//			obj := obj1.(*stmStateObject)
+//			if _, dirty := obj.dirtyStorage[key]; !dirty { // 原先没有写入
+//				obj.dirtyStorage[key] = newEmptySlot()
+//			}
+//			slot := obj.dirtyStorage[key]
+//			slot.Value = append(slot.Value, &SSlot{Value: value, TxInfo: &TxInfoMini{Index: txIndex, Incarnation: txIncarnation}})
+//			slot.len += 1
+//			//if txIndex == 11 {
+//			//	fmt.Println(obj.dirtyStorage[key].Value[obj.dirtyStorage[key].len-1].Value)
+//			//}
+//		}
+//	}
+//
+//	//if txIndex == 11 {
+//	//	obj := s.stateObjects[common.HexToAddress("0xdAC17F958D2ee523a2206206994597C13D831ec7")]
+//	//	fmt.Println("len(obj.dirtyStorage):", len(obj.dirtyStorage))
+//	//}
+//}
 
 // Root converts a provided account set from address keyed to hash keyed.
 func (s *StmStateDB) Root() common.Hash {
@@ -648,7 +943,50 @@ func (s *StmStateDB) AddBalance(addr common.Address, amount *big.Int) {
 	obj1, exist := s.stateObjects.Load(addr)
 	if exist {
 		obj := obj1.(*stmStateObject)
-		oldBalance := obj.data.StateAccount[obj.data.len-1].StateAccount.Balance
-		obj.data.StateAccount[obj.data.len-1].StateAccount.Balance = new(big.Int).Add(oldBalance, amount)
+		oldBalance := obj.data.StateAccount.Balance
+		obj.data.StateAccount.Balance = new(big.Int).Add(oldBalance, amount)
 	}
+}
+
+// Copy creates a deep, independent copy of the state.
+// Snapshots of the copied state cannot be applied to the copy.
+func (s *StmStateDB) Copy() *StmStateDB {
+	// Copy all the basic fields, initialize the memory ones
+	state := &StmStateDB{
+		db:                   s.db,
+		trie:                 s.db.CopyTrie(s.trie),
+		originalRoot:         s.originalRoot,
+		stateObjectsPending:  make(map[common.Address]struct{}, len(s.stateObjectsPending)),
+		stateObjectsDirty:    make(map[common.Address]struct{}, len(s.stateObjectsDirty)),
+		stateObjectsDestruct: make(map[common.Address]struct{}, len(s.stateObjectsDestruct)),
+		hasher:               crypto.NewKeccakState(),
+	}
+	// If there's a prefetcher running, make an inactive copy of it that can
+	// only access data but does not actively preload (since the user will not
+	// know that they need to explicitly terminate an active copy).
+	if s.prefetcher != nil {
+		state.prefetcher = s.prefetcher.copy()
+	}
+	if s.snaps != nil {
+		// In order for the miner to be able to use and make additions
+		// to the snapshot tree, we need to copy that as well.
+		// Otherwise, any block mined by ourselves will cause gaps in the tree,
+		// and force the miner to operate trie-backed only
+		state.snaps = s.snaps
+		state.snap = s.snap
+		// deep copy needed
+		state.snapAccounts = make(map[common.Hash][]byte)
+		for k, v := range s.snapAccounts {
+			state.snapAccounts[k] = v
+		}
+		state.snapStorage = make(map[common.Hash]map[common.Hash][]byte)
+		for k, v := range s.snapStorage {
+			temp := make(map[common.Hash][]byte)
+			for kk, vv := range v {
+				temp[kk] = vv
+			}
+			state.snapStorage[k] = temp
+		}
+	}
+	return state
 }

@@ -42,8 +42,9 @@ type StateDBConfig struct {
 func defaultStateDBConfig() *StateDBConfig {
 	if runtime.GOOS == "darwin" { // MacOS
 		return &StateDBConfig{
-			Cache:     614,
-			Journal:   "/Users/darcywep/Projects/ethereum/execution/geth/triecache",
+			Cache: 614,
+			//Journal:   "/Users/darcywep/Projects/ethereum/execution/geth/triecache",
+			Journal:   "/Volumes/ETH_DATA/ethereum/geth/triecache",
 			Preimages: false,
 		}
 	} else {

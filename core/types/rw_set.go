@@ -1,6 +1,8 @@
 package types
 
-import "github.com/ethereum/go-ethereum/common"
+import (
+	"github.com/ethereum/go-ethereum/common"
+)
 
 type AccessSlot struct {
 	IsRead  bool // 未读就是false

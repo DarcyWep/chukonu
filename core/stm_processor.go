@@ -87,9 +87,9 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 		return nil, nil, nil, 0, fmt.Errorf("withdrawals before shanghai")
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	stmAccumulateRewards(p.config, stmStateDB, header, block.Uncles())
+	StmAccumulateRewards(p.config, stmStateDB, header, block.Uncles())
 
-	root := stmStateDB.IntermediateRoot(p.config.IsEIP158(header.Number), -1)
+	root := stmStateDB.IntermediateRoot(p.config.IsEIP158(header.Number))
 	return &root, receipts, allLogs, *usedGas, nil
 }
 
@@ -210,10 +210,10 @@ func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, 
 	return receipt, err
 }
 
-// AccumulateRewards credits the coinbase of the given block with the mining
+// StmAccumulateRewards credits the coinbase of the given block with the mining
 // reward. The total reward consists of the static block reward and rewards for
 // included uncles. The coinbase of each uncle block is also rewarded.
-func stmAccumulateRewards(config *params.ChainConfig, state *state.StmStateDB, header *types.Header, uncles []*types.Header) {
+func StmAccumulateRewards(config *params.ChainConfig, state *state.StmStateDB, header *types.Header, uncles []*types.Header) {
 	// Ethash proof-of-work protocol constants.
 	var (
 		FrontierBlockReward       = big.NewInt(5e+18) // Block reward in wei for successfully mining a block

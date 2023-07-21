@@ -81,7 +81,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
-		//root := statedb.IntermediateRoot(true)
 		//fmt.Println(i, root)
 		//for addr, slotNormal := range *statedb.AccessAddress() {
 		//	fmt.Println(i, addr, slotNormal.Slots)
@@ -96,13 +95,13 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	accumulateRewards(p.config, statedb, header, block.Uncles())
 
-	//root := statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
+	root := statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
 	//for i, accessNormal := range txsAccessAddress {
 	//	for addr, slotNormal := range *accessNormal {
 	//		fmt.Println(i, addr, slotNormal.Slots)
 	//	}
 	//}
-	return nil, &txsAccessAddress, receipts, allLogs, *usedGas, nil
+	return &root, &txsAccessAddress, receipts, allLogs, *usedGas, nil
 }
 
 func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
@@ -118,11 +117,11 @@ func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, sta
 
 	// Update the state with pending changes.
 	var root []byte
-	//if config.IsByzantium(blockNumber) {
-	//	statedb.Finalise(true)
-	//} else {
-	//	root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
-	//}
+	if config.IsByzantium(blockNumber) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
+	}
 	*usedGas += result.UsedGas
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used

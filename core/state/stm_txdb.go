@@ -2,6 +2,7 @@ package state
 
 import (
 	"chukonu/core/types"
+	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -12,11 +13,12 @@ import (
 
 // StmTransaction is an Ethereum transaction.
 type StmTransaction struct {
-	Tx          *types.Transaction
-	Index       int
-	Incarnation int
-	TxDB        *stmTxStateDB
-
+	Tx            *types.Transaction
+	Index         int
+	Incarnation   int
+	BlockingTx    int
+	TxDB          *stmTxStateDB
+	readSet       []*ReadLoc
 	accessAddress *types.AccessAddressMap
 }
 
@@ -50,12 +52,39 @@ type stmTxStateDB struct {
 	nextRevisionId int
 }
 
+// WriteSet records the write operation including address and value after VM execution (Block-STM)
+type WriteSet struct {
+	Address         common.Address
+	Account         *SStateAccount
+	AccessedSlots   AccessedSlots
+	stateModified   bool
+	storageModified bool
+}
+
+type WriteSets map[common.Address]*WriteSet
+type AccessedSlots map[common.Hash]common.Hash
+
+func NewWriteSet(address common.Address, data *SStateAccount, slots map[common.Hash]common.Hash, marker bool) *WriteSet {
+	storageModified := false
+	if len(slots) > 0 {
+		storageModified = true
+	}
+	return &WriteSet{
+		Address:         address,
+		Account:         data,
+		AccessedSlots:   slots,
+		stateModified:   marker,
+		storageModified: storageModified,
+	}
+}
+
 // NewStmTransaction creates a new state from a given trie.
 func NewStmTransaction(tx *types.Transaction, index, incarnation int, statedb *StmStateDB) *StmTransaction {
 	stmTx := &StmTransaction{
 		Tx:          tx,
 		Index:       index,
 		Incarnation: incarnation,
+		BlockingTx:  -1,
 		TxDB: &stmTxStateDB{
 			statedb:              statedb,
 			stateObjects:         make(map[common.Address]*stmTxStateObject),
@@ -67,6 +96,7 @@ func NewStmTransaction(tx *types.Transaction, index, incarnation int, statedb *S
 			accessList:           newAccessList(),
 			transientStorage:     newTransientStorage(),
 		},
+		readSet:       make([]*ReadLoc, 0, 100),
 		accessAddress: types.NewAccessAddressMap(),
 	}
 	return stmTx
@@ -163,7 +193,6 @@ func (s *StmTransaction) GetNonce(addr common.Address) uint64 {
 	if stmTxStateObject != nil {
 		return stmTxStateObject.Nonce()
 	}
-
 	return 0
 }
 
@@ -193,16 +222,16 @@ func (s *StmTransaction) GetCodeSize(addr common.Address) int {
 func (s *StmTransaction) GetCodeHash(addr common.Address) common.Hash {
 	addAccessAddr(s.accessAddress, addr, true)
 	stmTxStateObject := s.getStateObject(addr)
-	if stmTxStateObject == nil {
-		return common.Hash{}
+	if stmTxStateObject != nil {
+		return common.BytesToHash(stmTxStateObject.CodeHash())
 	}
-	return common.BytesToHash(stmTxStateObject.CodeHash())
+	return common.Hash{}
 }
 
 // GetState retrieves a value from the given account's storage trie.
 func (s *StmTransaction) GetState(addr common.Address, hash common.Hash) common.Hash {
 	addAccessSlot(s.accessAddress, addr, hash, true, s.Index)
-	var stateHash common.Hash = common.Hash{}
+	var stateHash = common.Hash{}
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {
 		//return stmTxStateObject.GetState(hash)
@@ -384,12 +413,16 @@ func (s *StmTransaction) getDeletedStateObject(addr common.Address) *stmTxStateO
 	if obj := s.TxDB.stateObjects[addr]; obj != nil {
 		return obj
 	}
-	stateAccount := s.TxDB.statedb.getStateAccount(addr, s.Index, s.Incarnation)
-	if stateAccount == nil {
-		return nil
+	readRes := s.TxDB.statedb.readStateVersion(addr, s.Index)
+	if err := s.process(readRes, addr, nil); err != nil {
+		//log.Println(err)
+		if err.Error() == "notFound" {
+			return nil
+		}
 	}
+	// Here, we assume that the aborted tx is executed normally
 	// Insert into the live set
-	obj := newStmTxStateObject(s.TxDB, s.TxDB.statedb, addr, *stateAccount, s.Index, s.Incarnation)
+	obj := newStmTxStateObject(s, s.TxDB.statedb, addr, *readRes.DirtyState.account, s.Index, s.Incarnation)
 	s.setStateObject(obj)
 	return obj
 }
@@ -407,40 +440,49 @@ func (sts *stmTxStateDB) setStateObject(object *stmTxStateObject) {
 func (s *StmTransaction) GetOrNewStateObject(addr common.Address) *stmTxStateObject {
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject == nil {
-		stmTxStateObject, _ = s.createObject(addr)
+		stmTxStateObject = s.createObjectWithoutRead(addr)
 	}
 	return stmTxStateObject
 }
 
+// createObjectWithoutRead creates a new state object without checking if the account exists.
+// It is used after when the state object cannot be obtained
+func (s *StmTransaction) createObjectWithoutRead(addr common.Address) *stmTxStateObject {
+	stateAccount := SStateAccount{
+		StateAccount: types.NewStateAccount(0, new(big.Int).SetInt64(0), types.EmptyRootHash, types.EmptyCodeHash.Bytes()),
+	}
+	newObj := newStmTxStateObject(s, s.TxDB.statedb, addr, stateAccount, s.Index, s.Incarnation)
+	s.TxDB.journal.append(stmCreateObjectChange{account: &addr})
+	s.setStateObject(newObj)
+	return newObj
+}
+
 // createObject creates a new state object. If there is an existing account with
 // the given address, it is overwritten and returned as the second return value.
-func (s *StmTransaction) createObject(addr common.Address) (newobj, prev *stmTxStateObject) {
+func (s *StmTransaction) createObject(addr common.Address) (newObj, prev *stmTxStateObject) {
 	prev = s.getDeletedStateObject(addr) // Note, prev might have been deleted, we need that!
 
 	var prevdestruct bool
 	stateAccount := SStateAccount{
 		StateAccount: types.NewStateAccount(0, new(big.Int).SetInt64(0), types.EmptyRootHash, types.EmptyCodeHash.Bytes()),
-		TxInfo:       TxInfoMini{-2, -2},
 	}
 	if prev != nil { // 之前的不为空，新建一个等于把之前的销毁
 		_, prevdestruct = s.TxDB.stateObjectsDestruct[prev.address]
 		if !prevdestruct {
 			s.TxDB.stateObjectsDestruct[prev.address] = struct{}{}
 		}
-		stateAccount.TxInfo.Index = prev.data.TxInfo.Index
-		stateAccount.TxInfo.Incarnation = prev.data.TxInfo.Incarnation
 	}
-	newobj = newStmTxStateObject(s.TxDB, s.TxDB.statedb, addr, stateAccount, s.Index, s.Incarnation)
+	newObj = newStmTxStateObject(s, s.TxDB.statedb, addr, stateAccount, s.Index, s.Incarnation)
 	if prev == nil {
 		s.TxDB.journal.append(stmCreateObjectChange{account: &addr})
 	} else {
 		s.TxDB.journal.append(stmResetObjectChange{prev: prev, prevdestruct: prevdestruct})
 	}
-	s.setStateObject(newobj)
+	s.setStateObject(newObj)
 	if prev != nil && !prev.data.deleted {
-		return newobj, prev
+		return newObj, prev
 	}
-	return newobj, nil
+	return newObj, nil
 }
 
 // CreateAccount explicitly creates a state object. If a state object with the address
@@ -596,5 +638,68 @@ func (s *StmTransaction) Validation(deleteEmptyObjects bool) {
 		}
 		valObjects[addr] = obj
 	}
-	s.TxDB.statedb.Validation(valObjects, s.Index, s.Incarnation)
+	// s.TxDB.statedb.Validation(valObjects, s.Index, s.Incarnation)
+}
+
+// process processes the read result and adds the corresponding read operations to the read set
+func (s *StmTransaction) process(res *ReadResult, addr common.Address, hash *common.Hash) error {
+	if hash == nil {
+		if (res.Status == NOT_FOUND || res.Status == READ_OK) && res.DirtyState.account.StateAccount != nil {
+			s.addRead(addr, nil, res.Version)
+			return nil
+		}
+		if res.Status == READ_ERROR {
+			// read the marker 'estimate' and abort the current incarnation
+			s.BlockingTx = res.BlockingTx
+			if !res.DirtyState.account.deleted {
+				return errors.New("abort")
+			} else {
+				return errors.New("notFound")
+			}
+		}
+	} else {
+		if res.Status == NOT_FOUND || res.Status == READ_OK {
+			s.addRead(addr, hash, res.Version)
+			return nil
+		}
+		if res.Status == READ_ERROR {
+			// read the marker 'estimate' and abort the current incarnation
+			s.BlockingTx = res.BlockingTx
+			return errors.New("abort")
+		}
+	}
+	// the fetched state object is nil or the account data is nil (the newly created account)
+	return errors.New("notFound")
+}
+
+// addRead adds read address and slots to the read set
+func (s *StmTransaction) addRead(addr common.Address, slot *common.Hash, ver *TxInfoMini) {
+	loc := newLocation(addr, slot)
+	rLoc := &ReadLoc{Location: loc, Version: ver}
+	s.readSet = append(s.readSet, rLoc)
+}
+
+// OutputRWSet obtains read and write sets of a tx after the execution in VM
+func (s *StmTransaction) OutputRWSet() (int, []*ReadLoc, WriteSets) {
+	// demonstrate that this tx is aborted
+	if s.BlockingTx > -1 {
+		return s.BlockingTx, nil, nil
+	}
+
+	var writeSets = make(WriteSets)
+
+	for addr := range s.TxDB.journal.dirties {
+		obj, exist := s.TxDB.stateObjects[addr]
+		if !exist {
+			continue
+		}
+		if obj.data.suicided || obj.empty() {
+			obj.data.deleted = true
+		}
+
+		writeSet := NewWriteSet(addr, obj.data, obj.dirtyStorage, obj.modifiedMarker)
+		writeSets[addr] = writeSet
+	}
+
+	return -1, s.readSet, writeSets
 }

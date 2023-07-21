@@ -17,11 +17,12 @@ type stmTxStateObject struct {
 	address  common.Address
 	addrHash common.Hash // hash of ethereum address of the account
 	data     *SStateAccount
-	txdb     *stmTxStateDB
-	statedb  *StmStateDB
+	stmTx    *StmTransaction
+	stateDB  *StmStateDB
 
-	originStorage SStorage // Storage cache of original entries to dedup rewrites, reset for every transaction
-	dirtyStorage  Storage  // Storage entries that have been modified in the current transaction execution
+	dirtyStorage   Storage // Storage entries that have been modified in the current transaction execution
+	originStorage  Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
+	modifiedMarker bool    // indicates whether the account state has been modified
 }
 
 // empty returns whether the account is considered empty.
@@ -31,32 +32,34 @@ func (s *stmTxStateObject) empty() bool {
 }
 
 // newStmTxStateObject, SStateAccount 记录了其数据所读取的版本
-func newStmTxStateObject(txdb *stmTxStateDB, statedb *StmStateDB, address common.Address, data SStateAccount, txIndex, txIncarnation int) *stmTxStateObject {
+func newStmTxStateObject(stmTx *StmTransaction, stateDB *StmStateDB, address common.Address, data SStateAccount, txIndex, txIncarnation int) *stmTxStateObject {
 	return &stmTxStateObject{
-		txIndex:       txIndex,
-		txIncarnation: txIncarnation,
-		txdb:          txdb,
-		statedb:       statedb,
-		address:       address,
-		addrHash:      crypto.Keccak256Hash(address[:]),
-		data:          newSStateAccount(data.StateAccount, data.Code, data.dirtyCode, data.suicided, data.deleted, data.TxInfo.Copy()),
-		originStorage: make(SStorage),
-		dirtyStorage:  make(Storage),
+		txIndex:        txIndex,
+		txIncarnation:  txIncarnation,
+		stmTx:          stmTx,
+		stateDB:        stateDB,
+		address:        address,
+		addrHash:       crypto.Keccak256Hash(address[:]),
+		data:           newSStateAccount(data.StateAccount, data.Code, data.dirtyCode, data.suicided, data.deleted),
+		dirtyStorage:   make(Storage),
+		originStorage:  make(Storage),
+		modifiedMarker: false,
 	}
 }
 
 func (s *stmTxStateObject) markSuicided() {
 	s.data.suicided = true
+	s.modifiedMarker = true
 }
 
 func (s *stmTxStateObject) touch() {
-	s.txdb.journal.append(stmTouchChange{
+	s.stmTx.TxDB.journal.append(stmTouchChange{
 		account: &s.address,
 	})
 	if s.address == ripemd {
 		// Explicitly put it in the dirty-cache, which is otherwise generated from
 		// flattened journals.
-		s.txdb.journal.dirty(s.address)
+		s.stmTx.TxDB.journal.dirty(s.address)
 	}
 }
 
@@ -68,38 +71,41 @@ func (s *stmTxStateObject) GetState(key common.Hash) common.Hash {
 		return value
 	}
 	// 如果本交易没有写入，查看本交易是否获取过
-	sslot, origin := s.originStorage[key]
-	if origin {
-		return sslot.Value
+	origin, ok := s.originStorage[key]
+	if ok {
+		return origin
 	}
 	// 否则需并发的从statedb中读取
-	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
-	if oldSSlot != nil {
-		txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-		s.originStorage[key] = &SSlot{Value: common.BytesToHash(common.CopyBytes(oldSSlot.Value.Bytes())), TxInfo: txInfo}
-		return oldSSlot.Value
-	} else {
-		return common.Hash{}
+	readRes := s.stateDB.readStorageVersion(s.address, key, s.txIndex)
+	if err := s.stmTx.process(readRes, s.address, &key); err != nil {
+		//log.Println(err)
+		if err.Error() == "notFound" {
+			return common.Hash{}
+		}
 	}
-
+	stateHash := readRes.DirtyStorage.storageValue
+	s.originStorage[key] = stateHash
+	return stateHash
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
 func (s *stmTxStateObject) GetCommittedState(key common.Hash) common.Hash {
 	// 如果本交易没有写入，查看本交易是否获取过
-	sslot, origin := s.originStorage[key]
-	if origin {
-		return sslot.Value
+	origin, ok := s.originStorage[key]
+	if ok {
+		return origin
 	}
 	// 否则需并发的从statedb中读取
-	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
-	if oldSSlot != nil {
-		txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-		s.originStorage[key] = &SSlot{Value: oldSSlot.Value, TxInfo: txInfo}
-		return oldSSlot.Value
-	} else {
-		return common.Hash{}
+	readRes := s.stateDB.readStorageVersion(s.address, key, s.txIndex)
+	if err := s.stmTx.process(readRes, s.address, &key); err != nil {
+		//log.Println(err)
+		if err.Error() == "notFound" {
+			return common.Hash{}
+		}
 	}
+	stateHash := readRes.DirtyStorage.storageValue
+	s.originStorage[key] = stateHash
+	return stateHash
 }
 
 // SetState updates a value in account storage.
@@ -110,7 +116,7 @@ func (s *stmTxStateObject) SetState(key, value common.Hash) {
 		return
 	}
 	// New value is different, update and journal the change
-	s.txdb.journal.append(stmStorageChange{
+	s.stmTx.TxDB.journal.append(stmStorageChange{
 		account:  &s.address,
 		key:      key,
 		prevalue: prev,
@@ -147,7 +153,7 @@ func (s *stmTxStateObject) SubBalance(amount *big.Int) {
 }
 
 func (s *stmTxStateObject) SetBalance(amount *big.Int) {
-	s.txdb.journal.append(stmBalanceChange{
+	s.stmTx.TxDB.journal.append(stmBalanceChange{
 		account: &s.address,
 		prev:    new(big.Int).Set(s.data.StateAccount.Balance),
 	})
@@ -156,6 +162,7 @@ func (s *stmTxStateObject) SetBalance(amount *big.Int) {
 
 func (s *stmTxStateObject) setBalance(amount *big.Int) {
 	s.data.StateAccount.Balance = amount
+	s.modifiedMarker = true
 }
 
 //
@@ -193,7 +200,7 @@ func (s *stmTxStateObject) CodeSize() int {
 
 func (s *stmTxStateObject) SetCode(codeHash common.Hash, code []byte) {
 	prevcode := s.Code()
-	s.txdb.journal.append(stmCodeChange{
+	s.stmTx.TxDB.journal.append(stmCodeChange{
 		account:  &s.address,
 		prevhash: s.CodeHash(),
 		prevcode: prevcode,
@@ -205,10 +212,11 @@ func (s *stmTxStateObject) setCode(codeHash common.Hash, code []byte) {
 	s.data.Code = code
 	s.data.StateAccount.CodeHash = codeHash[:]
 	s.data.dirtyCode = true
+	s.modifiedMarker = true
 }
 
 func (s *stmTxStateObject) SetNonce(nonce uint64) {
-	s.txdb.journal.append(stmNonceChange{
+	s.stmTx.TxDB.journal.append(stmNonceChange{
 		account: &s.address,
 		prev:    s.data.StateAccount.Nonce,
 	})
@@ -217,6 +225,7 @@ func (s *stmTxStateObject) SetNonce(nonce uint64) {
 
 func (s *stmTxStateObject) setNonce(nonce uint64) {
 	s.data.StateAccount.Nonce = nonce
+	s.modifiedMarker = true
 }
 
 func (s *stmTxStateObject) CodeHash() []byte {
