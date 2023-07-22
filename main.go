@@ -58,6 +58,7 @@ func replayTransactions() {
 			return
 		}
 		statePre, _ := state.New(parent.Root, stateCache, snaps)
+		//primitiveRoot, _, _, _, _, _ := processor.Process(block, statePre.Copy(), vm.Config{EnablePreimageRecording: false})
 		primitiveRoot, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
 
 		hash1106 = block.Root()
