@@ -4,9 +4,7 @@ import (
 	"chukonu/core/state"
 	"chukonu/core/types"
 	"chukonu/core/vm"
-	"chukonu/setting"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 	"log"
 	"math/big"
 )
@@ -15,6 +13,7 @@ import (
 type STMThread struct {
 	Scheduler *Scheduler
 	MVMemory  *state.StmStateDB
+	TxStateDb *state.StmTransaction
 }
 
 // NewThread creates a new instance of STM thread
@@ -23,6 +22,11 @@ func NewThread(scheduler *Scheduler, memory *state.StmStateDB) *STMThread {
 		Scheduler: scheduler,
 		MVMemory:  memory,
 	}
+}
+
+// SetTxStateDb is the txdb for current tx
+func (thread *STMThread) SetTxStateDb(txStateDb *state.StmTransaction) {
+	thread.TxStateDb = txStateDb
 }
 
 // Run starts a Block-STM thread
@@ -85,6 +89,7 @@ func (thread *STMThread) process(tx *types.Transaction, version *state.TxInfoMin
 	)
 
 	stmTxDB := state.NewStmTransaction(tx, version.Index, version.Incarnation, stmStateDB)
+	thread.SetTxStateDb(stmTxDB)
 	vmenv := vm.NewEVM(context, vm.TxContext{}, stmTxDB, chainConfig, cfg)
 	msg, err := TransactionToMessage(tx, types.MakeSigner(chainConfig, header.Number), header.BaseFee)
 	if err != nil {
@@ -103,11 +108,21 @@ func (thread *STMThread) process(tx *types.Transaction, version *state.TxInfoMin
 	}
 	stmTxDB.AddBalance(msg.From, balanceCheck)
 
-	// 避免Transfer错误
-	newData, ok := setting.IsERCTransfer(msg.Data)
-	if ok {
-		msg.Data = common.CopyBytes(newData)
+	if msg.To != nil {
+		stmTxDB.GetBalance(*msg.To)
 	}
+
+	// 是否需要退出
+	if stmTxDB.GetDBError() != nil {
+		blockingTx, readSet, writeSet := stmTxDB.OutputRWSet()
+		return blockingTx, readSet, writeSet, nil
+	}
+
+	// 避免Transfer错误
+	//newData, ok := setting.IsERCTransfer(msg.Data)
+	//if ok {
+	//	msg.Data = common.CopyBytes(newData)
+	//}
 
 	receipt, err := applyStmTransaction(msg, chainConfig, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
 	if err != nil {
@@ -129,7 +144,12 @@ func (thread *STMThread) process(tx *types.Transaction, version *state.TxInfoMin
 
 // tryValidate conducts a validation task
 func (thread *STMThread) tryValidate(task *Task) (*Task, error) {
-	isValid := thread.MVMemory.ValidateReadSet(task.Ver.Index)
+	var isValid bool
+	if thread.TxStateDb.GetDBError() != nil {
+		isValid = false
+	} else {
+		isValid = thread.MVMemory.ValidateReadSet(task.Ver.Index)
+	}
 	canAbort := !isValid && thread.Scheduler.TryAbort(task.Ver.Index, task.Ver.Incarnation)
 	if canAbort {
 		thread.MVMemory.MarkEstimates(task.Ver.Index)

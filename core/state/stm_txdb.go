@@ -2,6 +2,7 @@ package state
 
 import (
 	"chukonu/core/types"
+	"chukonu/setting"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
@@ -10,6 +11,8 @@ import (
 	"math/big"
 	"sort"
 )
+
+var EstimateErr = fmt.Errorf("estimate", nil)
 
 // StmTransaction is an Ethereum transaction.
 type StmTransaction struct {
@@ -20,6 +23,9 @@ type StmTransaction struct {
 	TxDB          *stmTxStateDB
 	readSet       []*ReadLoc
 	accessAddress *types.AccessAddressMap
+
+	// only error when reading estimate
+	dbErr error
 }
 
 type stmTxStateDB struct {
@@ -98,6 +104,7 @@ func NewStmTransaction(tx *types.Transaction, index, incarnation int, statedb *S
 		},
 		readSet:       make([]*ReadLoc, 0, 100),
 		accessAddress: types.NewAccessAddressMap(),
+		dbErr:         nil,
 	}
 	return stmTx
 }
@@ -461,6 +468,9 @@ func (s *StmTransaction) createObjectWithoutRead(addr common.Address) *stmTxStat
 // the given address, it is overwritten and returned as the second return value.
 func (s *StmTransaction) createObject(addr common.Address) (newObj, prev *stmTxStateObject) {
 	prev = s.getDeletedStateObject(addr) // Note, prev might have been deleted, we need that!
+	if s.dbErr != nil {
+		s.dbErr = nil
+	}
 
 	var prevdestruct bool
 	stateAccount := SStateAccount{
@@ -620,6 +630,15 @@ func (s *StmTransaction) AccessAddress() *types.AccessAddressMap {
 	return s.accessAddress
 }
 
+// GetDBError if estimate,  abort
+func (s *StmTransaction) GetDBError() error {
+	if setting.Estimate {
+		return s.dbErr
+	} else {
+		return nil
+	}
+}
+
 func (s *StmTransaction) Validation(deleteEmptyObjects bool) {
 	valObjects := make(map[common.Address]*stmTxStateObject)
 	for addr := range s.TxDB.journal.dirties {
@@ -643,6 +662,9 @@ func (s *StmTransaction) Validation(deleteEmptyObjects bool) {
 
 // process processes the read result and adds the corresponding read operations to the read set
 func (s *StmTransaction) process(res *ReadResult, addr common.Address, hash *common.Hash) error {
+	if res.Status == READ_ERROR {
+		s.dbErr = EstimateErr
+	}
 	if hash == nil {
 		if (res.Status == NOT_FOUND || res.Status == READ_OK) && res.DirtyState.account.StateAccount != nil {
 			s.addRead(addr, nil, res.Version)

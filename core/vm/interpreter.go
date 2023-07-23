@@ -224,9 +224,15 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.evm.Config.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
+
+		// estimate 提前返回
+		if in.evm.StateDB.GetDBError() != nil {
+			return []byte(""), nil
+		}
+
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)
-		if err != nil {
+		if err != nil || in.evm.StateDB.GetDBError() != nil {
 			break
 		}
 		pc++

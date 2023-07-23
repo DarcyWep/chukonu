@@ -69,6 +69,9 @@ const (
 	slotValueLen = 32
 )
 
+// Estimate if you want to abort tx in advance, set Estimate = true
+var Estimate bool = false
+
 func IsERCTransfer(input []byte) ([]byte, bool) {
 	if len(input) < 4 {
 		return []byte(""), false

@@ -9,6 +9,7 @@ import (
 	"chukonu/core/vm"
 	"chukonu/database"
 	"chukonu/ethdb"
+	"chukonu/setting"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
@@ -61,20 +62,27 @@ func replayTransactions() {
 		statePre, _ := state.New(parent.Root, stateCache, snaps)
 
 		// serial execution
-		//_, _, _, _, _, _ = processor.Process(block, statePre.Copy(), vm.Config{EnablePreimageRecording: false})
-		//start1 := time.Now()
+		_, _, _, _, _, _ = processor.Process(block, statePre.Copy(), vm.Config{EnablePreimageRecording: false})
+		start1 := time.Now()
 		root0, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
-		//end1 := time.Since(start1)
-		fmt.Println(root0)
-		//fmt.Printf("serial execution time: %s\n", end1)
+		end1 := time.Since(start1)
+		//fmt.Println(root0)
+		fmt.Printf("serial execution time: %s\n", end1)
 
 		hash1106 = block.Root()
 		fmt.Println(hash1106.Hex())
 
+		_, _ = testBlockSTM(block, config.MainnetChainConfig, db, stateDb.Copy(), 20)
 		start2 := time.Now()
-		parentRoot, err = testBlockSTM(block, config.MainnetChainConfig, db, stateDb, 20)
+		parentRoot, err = testBlockSTM(block, config.MainnetChainConfig, db, stateDb.Copy(), 20)
 		end2 := time.Since(start2)
 		fmt.Printf("Block-STM execution time: %s\n", end2)
+
+		start3 := time.Now()
+		setting.Estimate = true
+		estimateRoot, err := testBlockSTM(block, config.MainnetChainConfig, db, stateDb, 20)
+		end3 := time.Since(start3)
+		fmt.Printf("Block-STM execution with estimate time: %s\n", end3)
 
 		//parentRoot, _, _, _, err = stmProcessor.Process(block, stateDb, vm.Config{EnablePreimageRecording: false})
 		if err != nil {
@@ -82,33 +90,22 @@ func replayTransactions() {
 			return
 		}
 
-		fmt.Println(parentRoot.Hex())
+		//fmt.Println(parentRoot.Hex())
 
 		// Commit all cached state changes into underlying memory database.
 		_, _ = statePre.Commit(config.MainnetChainConfig.IsEIP158(block.Number()))
 		root, _ := stateDb.Commit(config.MainnetChainConfig.IsEIP158(block.Number()))
 		parentRoot = &root
-		//if err != nil {
-		//	fmt.Println(err)
-		//	return
-		//}
-		//stateCache.TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
-		//
-		//// If we exceeded our memory allowance, flush matured singleton nodes to disk
-		//var (
-		//	nodes, imgs = stateCache.TrieDB().Size()
-		//	limit       = common.StorageSize(256) * 1024 * 1024
-		//)
-		//if nodes > limit || imgs > 4*1024*1024 {
-		//	stateCache.TrieDB().Cap(limit - ethdb.IdealBatchSize)
-		//}
-		//
-		//stateCache.TrieDB().Dereference(parent.Root)
 		parent = block.Header()
 		//fmt.Println(*root2 == root)
 		//fmt.Println(hash1106.Hex())
 		//fmt.Println(hash1106_1.Hex())
-		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == *parentRoot, hash1106 == root)
+		fmt.Println(hash1106)
+		fmt.Println(root0)
+		fmt.Println(parentRoot)
+		fmt.Println(estimateRoot)
+		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == *root0, hash1106 == *parentRoot, hash1106 == *estimateRoot)
+		fmt.Println()
 	}
 }
 
@@ -158,18 +155,27 @@ func concurrentReplay() {
 		return
 	}
 
-	_, _ = testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb.Copy(), 1)
+	serialRoot, _ := testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb.Copy(), 1)
 	start2 := time.Now()
-	parentRoot, err = testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb, 200)
+	parentRoot, err = testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb.Copy(), 20)
 	end2 := time.Since(start2)
 	fmt.Printf("Block-STM execution time: %s\n", end2)
+
+	start3 := time.Now()
+	setting.Estimate = true
+	estimateRoot, err := testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb, 20)
+	end3 := time.Since(start3)
+	fmt.Printf("Block-STM execution with estimate time: %s\n", end3)
 
 	if err != nil {
 		fmt.Println("process error", err)
 		return
 	}
 
+	fmt.Println(serialRoot.Hex())
 	fmt.Println(parentRoot.Hex())
+	fmt.Println(estimateRoot.Hex())
+	fmt.Println()
 }
 
 func testSerialExecution() {

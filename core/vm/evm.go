@@ -202,6 +202,10 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	}
 	evm.Context.Transfer(evm.StateDB, caller.Address(), addr, value)
 
+	if evm.StateDB.GetDBError() != nil {
+		return ret, gas, nil
+	}
+
 	// Capture the tracer start/end events in debug mode
 	if evm.Config.Debug {
 		if evm.depth == 0 {
@@ -270,6 +274,11 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 	if !evm.Context.CanTransfer(evm.StateDB, caller.Address(), value) {
 		return nil, gas, ErrInsufficientBalance
 	}
+
+	if evm.StateDB.GetDBError() != nil {
+		return ret, gas, nil
+	}
+
 	var snapshot = evm.StateDB.Snapshot()
 
 	// Invoke tracer hooks that signal entering/exiting a call frame
@@ -366,6 +375,9 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	// but is the correct thing to do and matters on other networks, in tests, and potential
 	// future scenarios
 	evm.StateDB.AddBalance(addr, big0)
+	if evm.StateDB.GetDBError() != nil {
+		return ret, gas, nil
+	}
 
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Debug {
@@ -450,6 +462,11 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	// The contract is a scoped environment for this execution context only.
 	contract := NewContract(caller, AccountRef(address), value, gas)
 	contract.SetCodeOptionalHash(&address, codeAndHash)
+
+	// estimate 提前返回
+	if evm.StateDB.GetDBError() != nil {
+		return []byte(""), address, contract.Gas, nil
+	}
 
 	if evm.Config.Debug {
 		if evm.depth == 0 {

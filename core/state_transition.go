@@ -330,6 +330,14 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err := st.preCheck(); err != nil {
 		return nil, err
 	}
+	// 是否需要退出
+	if st.state.GetDBError() != nil {
+		return &ExecutionResult{
+			UsedGas:    st.gasUsed(),
+			Err:        nil,
+			ReturnData: nil,
+		}, nil
+	}
 
 	if st.evm.Config.Debug {
 		st.evm.Config.Tracer.CaptureTxStart(st.initialGas)

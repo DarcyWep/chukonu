@@ -354,7 +354,7 @@ func (sc *Scheduler) checkDone() {
 
 	// sleep is used to detect if validation or execution index decreases
 	// from their observed values
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	// the observed counter is used to detect some tasks that fail
 	// in validation and back to the execution queue
 	if minTaskID >= int64(sc.txNum) && sc.activeTasks.Load() == 0 && observed == sc.decreaseCounter.Load() {

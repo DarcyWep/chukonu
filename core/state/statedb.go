@@ -196,6 +196,11 @@ func (s *StateDB) Error() error {
 	return s.dbErr
 }
 
+// GetDBError if estimate,  abort
+func (s *StateDB) GetDBError() error {
+	return nil
+}
+
 func (s *StateDB) AddLog(log *types.Log) {
 	s.journal.append(addLogChange{txhash: s.thash})
 
