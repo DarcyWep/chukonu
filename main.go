@@ -154,8 +154,12 @@ func concurrentReplay() {
 	if stateDb == nil {
 		return
 	}
-
+	_, _ = testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb.Copy(), 1)
+	start1 := time.Now()
 	serialRoot, _ := testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb.Copy(), 1)
+	end1 := time.Since(start1)
+	fmt.Printf("Block-STM serial execution time: %s\n", end1)
+
 	start2 := time.Now()
 	parentRoot, err = testBlockSTM(startBlock, config.MainnetChainConfig, db, stateDb.Copy(), 20)
 	end2 := time.Since(start2)
