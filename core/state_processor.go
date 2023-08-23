@@ -18,6 +18,7 @@ package core
 
 import (
 	"chukonu/ethdb"
+	"time"
 
 	"chukonu/core/state"
 	"chukonu/core/types"
@@ -61,9 +62,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		blockHash   = block.Hash()
 		blockNumber = block.Number()
 		allLogs     []*types.Log
+		allFee      = new(big.Int).SetInt64(0)
 		gp          = new(GasPool).AddGas(block.GasLimit())
 	)
-
+	startTime := time.Now()
 	blockContext := NewEVMBlockContext(header, p.chainDb, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 
@@ -81,8 +83,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		//fmt.Println()
 		//fmt.Println(blockNumber, tx.Hash(), i)
+		tx.Index = i
 		statedb.SetTxContext(tx.Hash(), i)
-		receipt, err := applyTransaction(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+		receipt, fee, err := applyTransaction(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+		allFee.Add(allFee, fee)
 		if err != nil {
 			fmt.Println("applyTransaction error", tx.Hash(), err)
 			return nil, nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
@@ -94,8 +98,11 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		//for addr, slotNormal := range *statedb.AccessAddress() {
 		//	fmt.Println(i, addr, slotNormal.Slots)
 		//}
+		tx.AccessPre = statedb.AccessAddress()
 		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
+	statedb.SetTxContext(common.Hash{}, -1)
+	statedb.AddBalance(blockContext.Coinbase, allFee)
 	//statedb.SetTxContext(common.Hash{}, 0) // 避免因叔父区块添加其矿工奖励而导致最后一个交易的读写集变化
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
@@ -115,18 +122,19 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	//		fmt.Println(i, addr, slotNormal.Slots)
 	//	}
 	//}
+	fmt.Println(root, "Serial", float64(block.Transactions().Len())/time.Since(startTime).Seconds())
 	return &root, &txsAccessAddress, receipts, allLogs, *usedGas, nil
 }
 
-func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, *big.Int, error) {
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
 	evm.Reset(txContext, statedb)
 
 	// Apply the transaction to the current state (included in the env).
-	result, err := ApplyMessage(evm, msg, gp)
+	result, err, fee := ApplyMessage(evm, msg, gp)
 	if err != nil {
-		return nil, err
+		return nil, fee, err
 	}
 
 	// Update the state with pending changes.
@@ -160,7 +168,7 @@ func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, sta
 	receipt.BlockHash = blockHash
 	receipt.BlockNumber = blockNumber
 	receipt.TransactionIndex = uint(statedb.TxIndex())
-	return receipt, err
+	return receipt, fee, err
 }
 
 // AccumulateRewards credits the coinbase of the given block with the mining

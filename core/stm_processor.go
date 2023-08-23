@@ -44,14 +44,14 @@ func NewStmStateProcessor(config *params.ChainConfig, chainDb ethdb.Database) *S
 	}
 }
 
-// Process processes the state changes according to the Ethereum rules by running
+// ProcessSerial processes the state changes according to the Ethereum rules by running
 // the transaction messages using the statedb and applying any rewards to both
 // the processor (coinbase) and any included uncles.
 //
 // Process returns the receipts and logs accumulated during the process and
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
-func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmStateDB, cfg vm.Config) (*common.Hash, types.Receipts, []*types.Log, uint64, error) {
+func (p *StmStateProcessor) ProcessSerial(block *types.Block, stmStateDB *state.StmStateDB, cfg vm.Config) (*common.Hash, types.Receipts, []*types.Log, uint64, error) {
 	var (
 		receipts    types.Receipts
 		usedGas     = new(uint64)
@@ -59,6 +59,7 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 		blockHash   = block.Hash()
 		blockNumber = block.Number()
 		allLogs     []*types.Log
+		allFee      = new(big.Int).SetInt64(0)
 		gp          = new(GasPool).AddGas(block.GasLimit())
 	)
 
@@ -66,13 +67,14 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
-		stmTxDB := state.NewStmTransaction(tx, i, 0, stmStateDB)
+		stmTxDB := state.NewStmTransaction(tx, i, stmStateDB)
 		vmenv := vm.NewEVM(blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 		msg, err := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
-		receipt, err := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
+		receipt, fee, err := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
+		allFee.Add(allFee, fee)
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
@@ -82,6 +84,7 @@ func (p *StmStateProcessor) Process(block *types.Block, stmStateDB *state.StmSta
 		//root := stmStateDB.IntermediateRoot(true, i)
 		//fmt.Println(i, root)
 	}
+	stmStateDB.AddBalance(blockContext.Coinbase, allFee)
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
 	if len(withdrawals) > 0 && !p.config.IsShanghai(block.Time()) {
@@ -152,7 +155,7 @@ func (p *StmStateProcessor) applyConcurrent(header *types.Header, tx *types.Tran
 		gp = new(GasPool).AddGas(header.GasLimit)
 	)
 
-	stmTxDB := state.NewStmTransaction(tx, i, 0, stmStateDB)
+	stmTxDB := state.NewStmTransaction(tx, i, stmStateDB)
 	vmenv := vm.NewEVM(*blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 	msg, _ := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 
@@ -176,7 +179,7 @@ func (p *StmStateProcessor) applyConcurrent(header *types.Header, tx *types.Tran
 		msg.Data = common.CopyBytes(newData)
 	}
 
-	receipt, _ := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
+	receipt, _, _ := applyStmTransaction(msg, p.config, gp, stmStateDB, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
 	//if err != nil {
 	//	fmt.Println(err)
 	//}
@@ -192,15 +195,15 @@ func (p *StmStateProcessor) applyConcurrent(header *types.Header, tx *types.Tran
 	accessAddrChan <- newAccessAddressChStruct(stmTxDB.AccessAddress(), i)
 }
 
-func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, stmStateDB *state.StmStateDB, statedb *state.StmTransaction, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, stmStateDB *state.StmStateDB, statedb *state.StmTransaction, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, *big.Int, error) {
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
 	evm.Reset(txContext, statedb)
 
 	// Apply the transaction to the current state (included in the env).
-	result, err := ApplyMessage(evm, msg, gp)
+	result, err, fee := ApplyMessage(evm, msg, gp)
 	if err != nil {
-		return nil, err
+		return nil, fee, err
 	}
 
 	// Update the state with pending changes.
@@ -234,7 +237,7 @@ func applyStmTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, 
 	receipt.BlockHash = blockHash
 	receipt.BlockNumber = blockNumber
 	receipt.TransactionIndex = uint(statedb.TxIndex())
-	return receipt, err
+	return receipt, fee, err
 }
 
 // AccumulateRewards credits the coinbase of the given block with the mining

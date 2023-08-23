@@ -152,7 +152,7 @@ func (ch stmResetObjectChange) dirtied() *common.Address {
 func (ch stmSuicideChange) revert(s *stmTxStateDB) {
 	obj := s.getStateObject(*ch.account)
 	if obj != nil {
-		obj.data.suicided = ch.prev
+		obj.suicided = ch.prev
 		obj.setBalance(ch.prevbalance)
 	}
 }

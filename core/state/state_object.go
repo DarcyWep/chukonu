@@ -247,9 +247,6 @@ func (s *stateObject) setState(key, value common.Hash) {
 func (s *stateObject) finalise(prefetch bool, txIndex int) {
 	slotsToPrefetch := make([][]byte, 0, len(s.dirtyStorage))
 	for key, value := range s.dirtyStorage {
-		//if txIndex == 11 {
-		//	fmt.Println(key, value)
-		//}
 		s.pendingStorage[key] = value
 		if value != s.originStorage[key] {
 			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure

@@ -62,7 +62,7 @@ func replayTransactions() {
 		primitiveRoot, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
 
 		hash1106 = block.Root()
-		stmRoot, _, _, _, err = stmProcessor.Process(block, stateDb, vm.Config{EnablePreimageRecording: false})
+		stmRoot, _, _, _, err = stmProcessor.ProcessSerial(block, stateDb, vm.Config{EnablePreimageRecording: false})
 		//if err != nil {
 		//	fmt.Println("process error", err)
 		//	return
@@ -377,8 +377,62 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 	//}
 }
 
+func testChuKoNu() {
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
+	if err != nil {
+		fmt.Println("open leveldb", err)
+		return
+	}
+	defer db.Close()
+	//var number uint64 = 12000000
+	var number uint64 = 9776809
+	//var number uint64 = 11090500
+	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	var (
+		parent     *types.Header  = blockPre.Header()
+		stmRoot    *common.Hash   = &parent.Root
+		stateCache state.Database = database.NewStateCache(db)
+		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
+	)
+
+	stateDb := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
+	if stateDb == nil {
+		return
+	}
+	stateDbCopy := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
+
+	statePre, _ := state.New(parent.Root, stateCache, snaps)
+	statePreCopy := statePre.Copy()
+	processor := core.NewStateProcessor(config.MainnetChainConfig, db)
+
+	var hash1106 common.Hash
+	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776812), big.NewInt(1)
+	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
+		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
+		if err2 != nil {
+			fmt.Println(err2)
+			return
+		}
+
+		_, _, _, _, _, _ = processor.Process(block, statePreCopy, vm.Config{EnablePreimageRecording: false})
+		primitiveRoot, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
+
+		hash1106 = block.Root()
+		core.ChuKoNuConcurrency(block, stateDbCopy, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
+		core.ChuKoNuConcurrency(block, stateDb, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
+		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == *primitiveRoot, hash1106 == *stmRoot)
+	}
+
+}
+
 func main() {
-	replayTransactions()
+	testChuKoNu()
+	//replayTransactions()
 	//for i := 0; i < 100; i++ {
 	//	compare()
 	//}

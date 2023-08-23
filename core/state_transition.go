@@ -172,7 +172,7 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, error) {
+func ApplyMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, error, *big.Int) {
 	return NewStateTransition(evm, msg, gp).TransitionDb()
 }
 
@@ -315,7 +315,7 @@ func (st *StateTransition) preCheck() error {
 //
 // However if any consensus issue encountered, return the error directly with
 // nil evm execution result.
-func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
+func (st *StateTransition) TransitionDb() (*ExecutionResult, error, *big.Int) {
 	// First check this message satisfies all consensus rules before
 	// applying the message. The rules include these clauses
 	//
@@ -326,9 +326,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 
+	fee := new(big.Int).SetInt64(0)
 	// Check clauses 1-3, buy gas if everything is correct
 	if err := st.preCheck(); err != nil {
-		return nil, err
+		return nil, err, fee
 	}
 
 	if st.evm.Config.Debug {
@@ -348,21 +349,21 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
 	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai)
 	if err != nil {
-		return nil, err
+		return nil, err, fee
 	}
 	if st.gasRemaining < gas {
-		return nil, fmt.Errorf("%w: have %d, want %d", ErrIntrinsicGas, st.gasRemaining, gas)
+		return nil, fmt.Errorf("%w: have %d, want %d", ErrIntrinsicGas, st.gasRemaining, gas), fee
 	}
 	st.gasRemaining -= gas
 
 	// Check clause 6
 	if msg.Value.Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From, msg.Value) {
-		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
+		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex()), fee
 	}
 
 	// Check whether the init code size has been exceeded.
 	if rules.IsShanghai && contractCreation && len(msg.Data) > params.MaxInitCodeSize {
-		return nil, fmt.Errorf("%w: code size %v limit %v", ErrMaxInitCodeSizeExceeded, len(msg.Data), params.MaxInitCodeSize)
+		return nil, fmt.Errorf("%w: code size %v limit %v", ErrMaxInitCodeSizeExceeded, len(msg.Data), params.MaxInitCodeSize), fee
 	}
 
 	// Execute the preparatory steps for state transition which includes:
@@ -399,16 +400,16 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
 	} else {
-		fee := new(big.Int).SetUint64(st.gasUsed())
+		fee = new(big.Int).SetUint64(st.gasUsed())
 		fee.Mul(fee, effectiveTip)
-		st.state.AddBalance(st.evm.Context.Coinbase, fee)
+		//st.state.AddBalance(st.evm.Context.Coinbase, fee)
 	}
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
 		ReturnData: ret,
-	}, nil
+	}, nil, fee
 }
 
 func (st *StateTransition) refundGas(refundQuotient uint64) {

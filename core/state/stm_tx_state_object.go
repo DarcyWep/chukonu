@@ -16,22 +16,42 @@ type stmTxStateObject struct {
 
 	address  common.Address
 	addrHash common.Hash // hash of ethereum address of the account
-	data     *SStateAccount
-	txdb     *stmTxStateDB
-	statedb  *StmStateDB
+	data     types.StateAccount
+	//data    *SStateAccount
+	txdb    *stmTxStateDB
+	statedb *StmStateDB
 
-	originStorage SStorage // Storage cache of original entries to dedup rewrites, reset for every transaction
-	dirtyStorage  Storage  // Storage entries that have been modified in the current transaction execution
+	// Write caches.
+	//trie Trie // storage trie, which becomes non-nil on first access
+	code Code // contract bytecode, which gets set when code is loaded
+
+	originStorage Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
+	dirtyStorage  Storage // Storage entries that have been modified in the current transaction execution
+
+	// Cache flags.
+	// When an object is marked suicided it will be deleted from the trie
+	// during the "update" phase of the state transition.
+	dirtyCode bool // true if the code was updated
+	suicided  bool
+	deleted   bool
 }
 
 // empty returns whether the account is considered empty.
 func (s *stmTxStateObject) empty() bool {
-	data := s.data.StateAccount
-	return data.Nonce == 0 && data.Balance.Sign() == 0 && bytes.Equal(data.CodeHash, types.EmptyCodeHash.Bytes())
+	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, types.EmptyCodeHash.Bytes())
 }
 
 // newStmTxStateObject, SStateAccount 记录了其数据所读取的版本
-func newStmTxStateObject(txdb *stmTxStateDB, statedb *StmStateDB, address common.Address, data SStateAccount, txIndex, txIncarnation int) *stmTxStateObject {
+func newStmTxStateObject(txdb *stmTxStateDB, statedb *StmStateDB, address common.Address, data types.StateAccount, txIndex, txIncarnation int) *stmTxStateObject {
+	if data.Balance == nil {
+		data.Balance = new(big.Int)
+	}
+	if data.CodeHash == nil {
+		data.CodeHash = types.EmptyCodeHash.Bytes()
+	}
+	if data.Root == (common.Hash{}) {
+		data.Root = types.EmptyRootHash
+	}
 	return &stmTxStateObject{
 		txIndex:       txIndex,
 		txIncarnation: txIncarnation,
@@ -39,14 +59,14 @@ func newStmTxStateObject(txdb *stmTxStateDB, statedb *StmStateDB, address common
 		statedb:       statedb,
 		address:       address,
 		addrHash:      crypto.Keccak256Hash(address[:]),
-		data:          newSStateAccount(data.StateAccount, data.Code, data.dirtyCode, data.suicided, data.deleted, data.TxInfo.Copy()),
-		originStorage: make(SStorage),
+		data:          data,
+		originStorage: make(Storage),
 		dirtyStorage:  make(Storage),
 	}
 }
 
 func (s *stmTxStateObject) markSuicided() {
-	s.data.suicided = true
+	s.suicided = true
 }
 
 func (s *stmTxStateObject) touch() {
@@ -63,43 +83,23 @@ func (s *stmTxStateObject) touch() {
 // GetState retrieves a value from the account storage trie.
 func (s *stmTxStateObject) GetState(key common.Hash) common.Hash {
 	// If we have a dirty value for this state entry, return it
-	value, dirty := s.dirtyStorage[key]
-	if dirty {
+	if value, dirty := s.dirtyStorage[key]; dirty {
 		return value
 	}
 	// 如果本交易没有写入，查看本交易是否获取过
-	sslot, origin := s.originStorage[key]
-	if origin {
-		return sslot.Value
+	if value, origin := s.originStorage[key]; origin {
+		return value
 	}
-	// 否则需并发的从statedb中读取
-	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
-	if oldSSlot != nil {
-		txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-		s.originStorage[key] = &SSlot{Value: common.BytesToHash(common.CopyBytes(oldSSlot.Value.Bytes())), TxInfo: txInfo}
-		return oldSSlot.Value
-	} else {
-		return common.Hash{}
-	}
-
+	return common.Hash{}
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
 func (s *stmTxStateObject) GetCommittedState(key common.Hash) common.Hash {
 	// 如果本交易没有写入，查看本交易是否获取过
-	sslot, origin := s.originStorage[key]
-	if origin {
-		return sslot.Value
+	if value, origin := s.originStorage[key]; origin {
+		return value
 	}
-	// 否则需并发的从statedb中读取
-	oldSSlot := s.statedb.GetState(s.address, key, s.txIndex, s.txIncarnation)
-	if oldSSlot != nil {
-		txInfo := TxInfoMini{Index: oldSSlot.TxInfo.Index, Incarnation: oldSSlot.TxInfo.Incarnation}
-		s.originStorage[key] = &SSlot{Value: oldSSlot.Value, TxInfo: txInfo}
-		return oldSSlot.Value
-	} else {
-		return common.Hash{}
-	}
+	return common.Hash{}
 }
 
 // SetState updates a value in account storage.
@@ -149,13 +149,13 @@ func (s *stmTxStateObject) SubBalance(amount *big.Int) {
 func (s *stmTxStateObject) SetBalance(amount *big.Int) {
 	s.txdb.journal.append(stmBalanceChange{
 		account: &s.address,
-		prev:    new(big.Int).Set(s.data.StateAccount.Balance),
+		prev:    new(big.Int).Set(s.data.Balance),
 	})
 	s.setBalance(amount)
 }
 
 func (s *stmTxStateObject) setBalance(amount *big.Int) {
-	s.data.StateAccount.Balance = amount
+	s.data.Balance = amount
 }
 
 //
@@ -169,8 +169,8 @@ func (s *stmTxStateObject) Address() common.Address {
 
 // Code returns the contract code associated with this object, if any.
 func (s *stmTxStateObject) Code() []byte {
-	if s.data.Code != nil {
-		return s.data.Code
+	if s.code != nil {
+		return s.code
 	}
 	if bytes.Equal(s.CodeHash(), types.EmptyCodeHash.Bytes()) {
 		return nil
@@ -202,35 +202,35 @@ func (s *stmTxStateObject) SetCode(codeHash common.Hash, code []byte) {
 }
 
 func (s *stmTxStateObject) setCode(codeHash common.Hash, code []byte) {
-	s.data.Code = code
-	s.data.StateAccount.CodeHash = codeHash[:]
-	s.data.dirtyCode = true
+	s.code = code
+	s.data.CodeHash = codeHash[:]
+	s.dirtyCode = true
 }
 
 func (s *stmTxStateObject) SetNonce(nonce uint64) {
 	s.txdb.journal.append(stmNonceChange{
 		account: &s.address,
-		prev:    s.data.StateAccount.Nonce,
+		prev:    s.data.Nonce,
 	})
 	s.setNonce(nonce)
 }
 
 func (s *stmTxStateObject) setNonce(nonce uint64) {
-	s.data.StateAccount.Nonce = nonce
+	s.data.Nonce = nonce
 }
 
 func (s *stmTxStateObject) CodeHash() []byte {
-	return s.data.StateAccount.CodeHash
+	return s.data.CodeHash
 }
 
 func (s *stmTxStateObject) Balance() *big.Int {
-	return s.data.StateAccount.Balance
+	return s.data.Balance
 }
 
 func (s *stmTxStateObject) Nonce() uint64 {
-	return s.data.StateAccount.Nonce
+	return s.data.Nonce
 }
 
 func (s *stmTxStateObject) Root() common.Hash {
-	return s.data.StateAccount.Root
+	return s.data.Root
 }

@@ -52,6 +52,14 @@ type Transaction struct {
 	inner TxData    // Consensus contents of a transaction
 	time  time.Time // Time first seen locally (spam avoidance)
 
+	// parallel execution
+	Index     int
+	AccessSum int
+
+	// rw-set
+	AccessPre  *AccessAddressMap
+	AccessExec *AccessAddressMap
+
 	// caches
 	hash atomic.Value
 	size atomic.Value

@@ -191,33 +191,37 @@ func newStmStateAccount(data *types.StateAccount, statedb *StmStateDB, addrHash 
 type stmStateObject struct {
 	address  common.Address
 	addrHash common.Hash // hash of ethereum address of the account
-	data     *StmStateAccount
-	db       *StmStateDB
+	//data     *StmStateAccount
+	data types.StateAccount
+	db   *StmStateDB
 
 	// Write caches.
-	trie Trie // storage trie, which becomes non-nil on first access
+	trieMutex sync.Mutex
+	trie      Trie // storage trie, which becomes non-nil on first access
+	code      Code // contract bytecode, which gets set when code is loaded
 
-	originMutex sync.RWMutex
-	dirtyMutex  sync.RWMutex
-	//originStorage  StmStorage // StmStorage cache of original entries to dedup rewrites, reset for every transaction
-	originStorage  sync.Map   // StmStorage cache of original entries to dedup rewrites, reset for every transaction
-	pendingStorage StmStorage // StmStorage entries that need to be flushed to disk, at the end of an entire block
-	dirtyStorage   StmStorage // StmStorage entries that have been modified in the current transaction execution
+	originMutex    sync.RWMutex
+	dirtyMutex     sync.RWMutex
+	originStorage  Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
+	pendingStorage Storage // Storage entries that need to be flushed to disk, at the end of an entire block
+	dirtyStorage   Storage // Storage entries that have been modified in the current transaction execution
+
+	// Cache flags.
+	// When an object is marked suicided it will be deleted from the trie
+	// during the "update" phase of the state transition.
+	dirtyCode bool // true if the code was updated
+	suicided  bool
+	deleted   bool
 }
 
 // empty returns whether the account is considered empty.
 // 没有 或 最后一个为空
 func (s *stmStateObject) empty() bool {
-	if s.data.len == 0 {
-		return true
-	}
-	stateAccount := s.data.StateAccount[s.data.len-1].StateAccount
-	return stateAccount.Nonce == 0 && stateAccount.Balance.Sign() == 0 && bytes.Equal(stateAccount.CodeHash, types.EmptyCodeHash.Bytes())
+	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, types.EmptyCodeHash.Bytes())
 }
 
 // newStmStateObject creates a state object, 开始读读时候会新建
 func newStmStateObject(db *StmStateDB, address common.Address, data types.StateAccount) *stmStateObject {
-	//fmt.Println(address, data.Balance)
 	if data.Balance == nil {
 		data.Balance = new(big.Int)
 	}
@@ -227,50 +231,50 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 	if data.Root == (common.Hash{}) {
 		data.Root = types.EmptyRootHash
 	}
-
 	return &stmStateObject{
-		db:       db,
-		address:  address,
-		addrHash: crypto.Keccak256Hash(address[:]),
-		data:     newStmStateAccount(&data, db, crypto.Keccak256Hash(address[:])),
-		//originStorage:  make(StmStorage),
-		pendingStorage: make(StmStorage),
-		dirtyStorage:   make(StmStorage),
+		db:             db,
+		address:        address,
+		addrHash:       crypto.Keccak256Hash(address[:]),
+		data:           data,
+		originStorage:  make(Storage),
+		pendingStorage: make(Storage),
+		dirtyStorage:   make(Storage),
 	}
 }
 
 func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObject {
 	return &stmStateObject{
-		db:       db,
-		address:  address,
-		addrHash: crypto.Keccak256Hash(address[:]),
-		data:     newEmptyStmStateAccount(),
-		//originStorage:  make(StmStorage),
-		pendingStorage: make(StmStorage),
-		dirtyStorage:   make(StmStorage),
+		db:             db,
+		address:        address,
+		addrHash:       crypto.Keccak256Hash(address[:]),
+		data:           types.StateAccount{Root: types.EmptyRootHash, CodeHash: types.EmptyCodeHash.Bytes()},
+		originStorage:  make(Storage),
+		pendingStorage: make(Storage),
+		dirtyStorage:   make(Storage),
 	}
 }
 
 // EncodeRLP implements rlp.Encoder.
 func (s *stmStateObject) EncodeRLP(w io.Writer) error {
-	return rlp.Encode(w, s.data.StateAccount[s.data.len-1].StateAccount)
+	return rlp.Encode(w, &s.data)
 }
 
 // getTrie returns the associated storage trie. The trie will be opened
 // if it's not loaded previously. An error will be returned if trie can't
 // be loaded.
 func (s *stmStateObject) getTrie(db Database) (Trie, error) {
-	stateAccount := s.data.StateAccount[s.data.len-1].StateAccount // 选择最后一个stateAccount
 	if s.trie == nil {
 		// Try fetching from prefetcher first
 		// We don't prefetch empty tries
-		if stateAccount.Root != types.EmptyRootHash && s.db.prefetcher != nil {
+		if s.data.Root != types.EmptyRootHash && s.db.prefetcher != nil {
 			// When the miner is creating the pending state, there is no
 			// prefetcher
-			s.trie = s.db.prefetcher.trie(s.addrHash, stateAccount.Root)
+			s.trie = s.db.prefetcher.trie(s.addrHash, s.data.Root)
 		}
 		if s.trie == nil {
-			tr, err := db.OpenStorageTrie(s.db.originalRoot, s.addrHash, stateAccount.Root)
+			s.trieMutex.Lock()
+			tr, err := db.OpenStorageTrie(s.db.originalRoot, s.addrHash, s.data.Root)
+			s.trieMutex.Unlock()
 			if err != nil {
 				return nil, err
 			}
@@ -281,31 +285,30 @@ func (s *stmStateObject) getTrie(db Database) (Trie, error) {
 }
 
 // GetState retrieves a value from the account storage trie.
-func (s *stmStateObject) GetState(db Database, key common.Hash, txIndex, txIncarnation int) *SSlot {
+func (s *stmStateObject) GetState(db Database, key common.Hash, txIndex, txIncarnation int) common.Hash {
 	// If we have a dirty value for this state entry, return it
-	slot, dirty := s.dirtyStorage[key]
+	s.dirtyMutex.RLock()
+	value, dirty := s.dirtyStorage[key]
+	s.dirtyMutex.RUnlock()
 	if dirty {
-		return slot.Value[slot.len-1].Copy()
+		return value
 	}
 	// Otherwise return the entry's original value, 需要从db中获取
 	return s.GetCommittedState(db, key, txIndex, txIncarnation)
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
-func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex, txIncarnation int) *SSlot {
+func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex, txIncarnation int) common.Hash {
 	// If we have a pending write or clean cached, return that
-	if slot, pending := s.pendingStorage[key]; pending {
-		return slot.Value[slot.len-1].Copy()
+	if value, pending := s.pendingStorage[key]; pending {
+		return value
 	}
-	s.originMutex.Lock()
-	defer s.originMutex.Unlock()
-	//s.originMutex.Lock()
-	//slot, cached := s.originStorage[key]
-	slot1, cached := s.originStorage.Load(key)
-	//s.originMutex.Unlock()
+
+	s.originMutex.RLock()
+	value, cached := s.originStorage[key]
+	s.originMutex.RUnlock()
 	if cached {
-		slot := slot1.(*Slot)
-		return slot.Value[slot.len-1].Copy()
+		return value
 	}
 	// If the object was destructed in *this* block (and potentially resurrected),
 	// the storage has been cleared out, and we should *not* consult the previous
@@ -314,7 +317,7 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 	//      have been handles via pendingStorage above.
 	//   2) we don't have new values, and can deliver empty response back
 	if _, destructed := s.db.stateObjectsDestruct[s.address]; destructed {
-		return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
+		return common.Hash{}
 	}
 	// If no live objects are available, attempt to use snapshots
 	var (
@@ -335,67 +338,49 @@ func (s *stmStateObject) GetCommittedState(db Database, key common.Hash, txIndex
 		if err != nil {
 			fmt.Println("get trie", err)
 			s.db.setError(err)
-			return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
+			return common.Hash{}
 		}
+		s.trieMutex.Lock()
 		enc, err = tr.TryGet(key.Bytes())
+		s.trieMutex.Unlock()
 		if metrics.EnabledExpensive {
 			s.db.StorageReads += time.Since(start)
 		}
 		if err != nil {
 			s.db.setError(err)
-			return newSSlot(common.Hash{}, TxInfoMini{Index: -2, Incarnation: -2})
+			return common.Hash{}
 		}
 	}
-	var value common.Hash
+	var newValue common.Hash
 	if len(enc) > 0 {
 		_, content, _, err := rlp.Split(enc)
 		if err != nil {
 			s.db.setError(err)
 		}
-		value.SetBytes(content)
+		newValue.SetBytes(content)
 	}
-	newSlot1 := newSlot(value)
-	//s.originMutex.Lock()
-	//newSlot2, ok := s.originStorage[key]
-	newSlot2, ok := s.originStorage.Load(key)
-	if !ok {
-		//s.originStorage[key] = newSlot1
-		s.originStorage.LoadOrStore(key, newSlot1)
-	}
-	//s.originMutex.Unlock()
-	if ok {
-		slot := newSlot2.(*Slot)
-		return slot.Value[slot.len-1].Copy()
-		//return newSlot2.Value[newSlot2.len-1].Copy()
-	} else {
-		return newSlot1.Value[newSlot1.len-1].Copy()
-	}
+	s.originMutex.Lock()
+	s.originStorage[key] = newValue
+	s.originMutex.Unlock()
+	return newValue
 }
 
 // finalise moves all dirty storage slots into the pending area to be hashed or
 // committed later. It is invoked at the end of every transaction.
 func (s *stmStateObject) finalise(prefetch bool, txIndex int) {
 	slotsToPrefetch := make([][]byte, 0, len(s.dirtyStorage))
-	for key, dirtySlot := range s.dirtyStorage {
-		//if txIndex == 11 {
-		//	fmt.Println(key, dirtySlot.Value[dirtySlot.len-1].Value)
-		//}
-		s.pendingStorage[key] = dirtySlot.Copy()
-		//originSlot := s.originStorage[key]
-		originSlot1, _ := s.originStorage.Load(key)
-		if originSlot1 != nil {
-			originSlot := originSlot1.(*Slot)
-			if dirtySlot.Value[dirtySlot.len-1].Value != originSlot.Value[originSlot.len-1].Value {
-				slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
-			}
+	for key, value := range s.dirtyStorage {
+		s.pendingStorage[key] = value
+		if value != s.originStorage[key] {
+			slotsToPrefetch = append(slotsToPrefetch, common.CopyBytes(key[:])) // Copy needed for closure
 		}
 	}
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	if s.db.prefetcher != nil && prefetch && len(slotsToPrefetch) > 0 && data.Root != types.EmptyRootHash {
-		s.db.prefetcher.prefetch(s.addrHash, data.Root, slotsToPrefetch)
+	if s.db.prefetcher != nil && prefetch && len(slotsToPrefetch) > 0 && s.data.Root != types.EmptyRootHash {
+		s.db.prefetcher.prefetch(s.addrHash, s.data.Root, slotsToPrefetch)
 	}
+
 	if len(s.dirtyStorage) > 0 {
-		s.dirtyStorage = make(StmStorage)
+		s.dirtyStorage = make(Storage)
 	}
 }
 
@@ -415,7 +400,7 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 	// The snapshot storage map for the object
 	var (
 		storage map[common.Hash][]byte
-		hasher  = s.db.hasher
+		hasher  = crypto.NewKeccakState()
 	)
 	tr, err := s.getTrie(db)
 	if err != nil {
@@ -425,24 +410,15 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 	}
 	// Insert all the pending updates into the trie
 	usedStorage := make([][]byte, 0, len(s.pendingStorage))
-	for key, pendingSlot := range s.pendingStorage {
+	for key, value := range s.pendingStorage {
 		// Skip noop changes, persist actual changes
-		//originSlot := s.originStorage[key]
-		originSlot1, _ := s.originStorage.Load(key)
-		pendingValue := pendingSlot.Value[pendingSlot.len-1].Value
-		if originSlot1 != nil {
-			originSlot := originSlot1.(*Slot)
-			originValue := originSlot.Value[originSlot.len-1].Value
-			if pendingValue == originValue {
-				continue
-			}
+		if value == s.originStorage[key] {
+			continue
 		}
-
-		//s.originStorage[key] = newSlot(pendingValue)
-		s.originStorage.Store(key, newSlot(pendingValue))
+		s.originStorage[key] = value
 
 		var v []byte
-		if (pendingValue == common.Hash{}) {
+		if (value == common.Hash{}) {
 			if err := tr.TryDelete(key[:]); err != nil {
 				s.db.setError(err)
 				return nil, err
@@ -450,7 +426,7 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 			s.db.StorageDeleted += 1
 		} else {
 			// Encoding []byte cannot fail, ok to ignore the error.
-			v, _ = rlp.EncodeToBytes(common.TrimLeftZeroes(pendingValue[:]))
+			v, _ = rlp.EncodeToBytes(common.TrimLeftZeroes(value[:]))
 			if err := tr.TryUpdate(key[:], v); err != nil {
 				s.db.setError(err)
 				return nil, err
@@ -471,11 +447,10 @@ func (s *stmStateObject) updateTrie(db Database) (Trie, error) {
 		usedStorage = append(usedStorage, common.CopyBytes(key[:])) // Copy needed for closure
 	}
 	if s.db.prefetcher != nil {
-		data := s.data.StateAccount[s.data.len-1].StateAccount
-		s.db.prefetcher.used(s.addrHash, data.Root, usedStorage)
+		s.db.prefetcher.used(s.addrHash, s.data.Root, usedStorage)
 	}
 	if len(s.pendingStorage) > 0 {
-		s.pendingStorage = make(StmStorage)
+		s.pendingStorage = make(Storage)
 	}
 	return tr, nil
 }
@@ -495,9 +470,7 @@ func (s *stmStateObject) updateRoot(db Database) {
 	if metrics.EnabledExpensive {
 		defer func(start time.Time) { s.db.StorageHashes += time.Since(start) }(time.Now())
 	}
-	//data := s.data.StateAccount[s.data.len-1].StateAccount
-	//data.Root = tr.Hash()
-	s.data.StateAccount[s.data.len-1].StateAccount.Root = tr.Hash()
+	s.data.Root = tr.Hash()
 }
 
 // commitTrie submits the storage changes into the storage trie and re-computes
@@ -516,14 +489,18 @@ func (s *stmStateObject) commitTrie(db Database) (*trie.NodeSet, error) {
 		defer func(start time.Time) { s.db.StorageCommits += time.Since(start) }(time.Now())
 	}
 	root, nodes := tr.Commit(false)
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	data.Root = root
+	s.data.Root = root
 	return nodes, nil
 }
 
 func (s *stmStateObject) setStateAccount(txObj *stmTxStateObject, txIndex, txIncarnation int) {
-	s.data.StateAccount = append(s.data.StateAccount, newSStateAccount(txObj.data.StateAccount, txObj.data.Code, txObj.data.dirtyCode, txObj.data.suicided, txObj.data.deleted, TxInfoMini{Index: txIndex, Incarnation: txIncarnation}))
-	s.data.len += 1
+	s.data.Nonce = txObj.data.Nonce
+	s.data.Balance.Set(txObj.data.Balance)
+	s.data.CodeHash = common.CopyBytes(txObj.data.CodeHash)
+	s.code = common.CopyBytes(txObj.code)
+	s.dirtyCode = txObj.dirtyCode
+	s.suicided = txObj.suicided
+	s.deleted = txObj.deleted
 }
 
 // Address returns the address of the contract/account
@@ -532,21 +509,17 @@ func (s *stmStateObject) Address() common.Address {
 }
 
 func (s *stmStateObject) CodeHash() []byte {
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	return data.CodeHash
+	return s.data.CodeHash
 }
 
 func (s *stmStateObject) Balance() *big.Int {
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	return data.Balance
+	return s.data.Balance
 }
 
 func (s *stmStateObject) Nonce() uint64 {
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	return data.Nonce
+	return s.data.Nonce
 }
 
 func (s *stmStateObject) Root() common.Hash {
-	data := s.data.StateAccount[s.data.len-1].StateAccount
-	return data.Root
+	return s.data.Root
 }

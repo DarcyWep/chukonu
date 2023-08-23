@@ -259,21 +259,21 @@ func (s *StateDB) SubRefund(gas uint64) {
 // Exist reports whether the given account address exists in the state.
 // Notably this also returns true for suicided accounts.
 func (s *StateDB) Exist(addr common.Address) bool {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	return s.getStateObject(addr) != nil
 }
 
 // Empty returns whether the state object is either non-existent
 // or empty according to the EIP161 specification (balance = nonce = code = 0)
 func (s *StateDB) Empty(addr common.Address) bool {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	so := s.getStateObject(addr)
 	return so == nil || so.empty()
 }
 
 // GetBalance retrieves the balance from the given address or 0 if object not found
 func (s *StateDB) GetBalance(addr common.Address) *big.Int {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.Balance()
@@ -282,7 +282,7 @@ func (s *StateDB) GetBalance(addr common.Address) *big.Int {
 }
 
 func (s *StateDB) GetNonce(addr common.Address) uint64 {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.Nonce()
@@ -297,7 +297,7 @@ func (s *StateDB) TxIndex() int {
 }
 
 func (s *StateDB) GetCode(addr common.Address) []byte {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.Code(s.db)
@@ -306,7 +306,7 @@ func (s *StateDB) GetCode(addr common.Address) []byte {
 }
 
 func (s *StateDB) GetCodeSize(addr common.Address) int {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.CodeSize(s.db)
@@ -315,7 +315,7 @@ func (s *StateDB) GetCodeSize(addr common.Address) int {
 }
 
 func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject == nil {
 		return common.Hash{}
@@ -399,7 +399,7 @@ func (s *StateDB) StorageTrie(addr common.Address) (Trie, error) {
 }
 
 func (s *StateDB) HasSuicided(addr common.Address) bool {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.suicided
@@ -413,7 +413,7 @@ func (s *StateDB) HasSuicided(addr common.Address) bool {
 
 // AddBalance adds amount to the account associated with addr.
 func (s *StateDB) AddBalance(addr common.Address, amount *big.Int) {
-	addAccessAddr(s.accessAddress, addr, false)
+	addAccessAddr(s.accessAddress, addr, false, false)
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.AddBalance(amount)
@@ -422,7 +422,7 @@ func (s *StateDB) AddBalance(addr common.Address, amount *big.Int) {
 
 // SubBalance subtracts amount from the account associated with addr.
 func (s *StateDB) SubBalance(addr common.Address, amount *big.Int) {
-	addAccessAddr(s.accessAddress, addr, false)
+	addAccessAddr(s.accessAddress, addr, false, false)
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.SubBalance(amount)
@@ -437,7 +437,7 @@ func (s *StateDB) SetBalance(addr common.Address, amount *big.Int) {
 }
 
 func (s *StateDB) SetNonce(addr common.Address, nonce uint64) {
-	addAccessAddr(s.accessAddress, addr, false)
+	addAccessAddr(s.accessAddress, addr, false, false)
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.SetNonce(nonce)
@@ -445,7 +445,7 @@ func (s *StateDB) SetNonce(addr common.Address, nonce uint64) {
 }
 
 func (s *StateDB) SetCode(addr common.Address, code []byte) {
-	addAccessAddr(s.accessAddress, addr, false)
+	addAccessAddr(s.accessAddress, addr, false, false)
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.SetCode(crypto.Keccak256Hash(code), code)
@@ -481,7 +481,7 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 // The account's state object is still available until the state is committed,
 // getStateObject will return a non-nil account after Suicide.
 func (s *StateDB) Suicide(addr common.Address) bool {
-	addAccessAddr(s.accessAddress, addr, false)
+	addAccessAddr(s.accessAddress, addr, false, false)
 	stateObject := s.getStateObject(addr)
 	if stateObject == nil {
 		return false
@@ -501,7 +501,7 @@ func (s *StateDB) Suicide(addr common.Address) bool {
 // adds the change to the journal so that it can be rolled back
 // to its previous value if there is a revert.
 func (s *StateDB) SetTransientState(addr common.Address, key, value common.Hash) {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	prev := s.GetTransientState(addr, key)
 	if prev == value {
 		return
@@ -522,7 +522,7 @@ func (s *StateDB) setTransientState(addr common.Address, key, value common.Hash)
 
 // GetTransientState gets transient storage for a given account.
 func (s *StateDB) GetTransientState(addr common.Address, key common.Hash) common.Hash {
-	addAccessAddr(s.accessAddress, addr, true)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	return s.transientStorage.Get(addr, key)
 }
 
@@ -680,7 +680,7 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StateDB) CreateAccount(addr common.Address) {
-	addAccessAddr(s.accessAddress, addr, false)
+	addAccessAddr(s.accessAddress, addr, false, false)
 	newObj, prev := s.createObject(addr)
 	if prev != nil {
 		newObj.setBalance(prev.data.Balance)
@@ -1206,22 +1206,24 @@ func (s *StateDB) AccessAddress() *types.AccessAddressMap {
 }
 
 // addAccessAddr 将交易所访问的地址进行记录
-func addAccessAddr(accessAddress *types.AccessAddressMap, addr common.Address, readOnly bool) {
+func addAccessAddr(accessAddress *types.AccessAddressMap, addr common.Address, readOnly bool, isSlot bool) {
 	accessAddr, ok := (*accessAddress)[addr]
 	if !ok {
 		accessAddr = types.NewAccessAddress()
 	}
-	if readOnly {
-		accessAddr.IsRead = true
-	} else {
-		accessAddr.IsWrite = true
+	if !isSlot {
+		if readOnly {
+			accessAddr.IsRead = true
+		} else {
+			accessAddr.IsWrite = true
+		}
 	}
 	(*accessAddress)[addr] = accessAddr
 }
 
 // addAccessSlot 将交易所访问的存储槽进行记录
 func addAccessSlot(accessAddress *types.AccessAddressMap, addr common.Address, slot common.Hash, readOnly bool, txIndex int) {
-	addAccessAddr(accessAddress, addr, readOnly)
+	addAccessAddr(accessAddress, addr, readOnly, true)
 	accessAddr, _ := (*accessAddress)[addr]
 	accessSlot, ok := (*accessAddr.Slots)[slot]
 	if !ok {
