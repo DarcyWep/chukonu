@@ -244,10 +244,15 @@ func newStmStateObject(db *StmStateDB, address common.Address, data types.StateA
 
 func createStmStateObject(db *StmStateDB, address common.Address) *stmStateObject {
 	return &stmStateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           types.StateAccount{Root: types.EmptyRootHash, CodeHash: types.EmptyCodeHash.Bytes()},
+		db:       db,
+		address:  address,
+		addrHash: crypto.Keccak256Hash(address[:]),
+		data: types.StateAccount{
+			Nonce:    0,
+			Balance:  new(big.Int),
+			Root:     types.EmptyRootHash,
+			CodeHash: types.EmptyCodeHash.Bytes(),
+		},
 		originStorage:  make(Storage),
 		pendingStorage: make(Storage),
 		dirtyStorage:   make(Storage),

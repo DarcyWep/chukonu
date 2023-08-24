@@ -1211,12 +1211,20 @@ func addAccessAddr(accessAddress *types.AccessAddressMap, addr common.Address, r
 	if !ok {
 		accessAddr = types.NewAccessAddress()
 	}
+	// 细粒度的记录，需区分slot与account
 	if !isSlot {
 		if readOnly {
 			accessAddr.IsRead = true
 		} else {
 			accessAddr.IsWrite = true
 		}
+	}
+
+	// 粗粒度的记录
+	if readOnly {
+		accessAddr.CoarseRead = true
+	} else {
+		accessAddr.CoarseWrite = true
 	}
 	(*accessAddress)[addr] = accessAddr
 }

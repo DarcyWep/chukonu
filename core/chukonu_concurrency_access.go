@@ -32,7 +32,7 @@ type depQueue struct {
 	len        int                 // pending的总长度
 }
 
-func ChuKoNuConcurrency(block *types.Block, stmStateDB *state.StmStateDB, cfg vm.Config, config *params.ChainConfig, chainDb ethdb.Database) {
+func ChuKoNuConcurrencyAccess(block *types.Block, stmStateDB *state.StmStateDB, cfg vm.Config, config *params.ChainConfig, chainDb ethdb.Database) {
 	var (
 		disNum  = 2
 		execNum = 6
@@ -96,7 +96,7 @@ func ChuKoNuConcurrency(block *types.Block, stmStateDB *state.StmStateDB, cfg vm
 
 	root := stmStateDB.IntermediateRoot(config.IsEIP158(block.Number()), -1)
 
-	fmt.Println(root, "ChuKoNu", float64(block.Transactions().Len())/time.Since(startTime).Seconds())
+	fmt.Println(root, "ChuKoNu Access", float64(block.Transactions().Len())/time.Since(startTime).Seconds())
 }
 
 func constructionOrder(block *types.Block, disCh distributeChan) int {

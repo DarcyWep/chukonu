@@ -25,6 +25,10 @@ type AccessAddress struct {
 	//Slots   AccessSlotMap
 	IsRead  bool // 未读就是false
 	IsWrite bool // 未写为false
+
+	// 粗粒度的读写，slot的读写记录到这里
+	CoarseRead  bool
+	CoarseWrite bool
 }
 
 type AccessAddressMap map[common.Address]*AccessAddress
@@ -35,6 +39,9 @@ func NewAccessAddress() *AccessAddress {
 		//Slots:   make(AccessSlotMap),
 		IsRead:  false,
 		IsWrite: false,
+
+		CoarseRead:  false,
+		CoarseWrite: false,
 	}
 }
 
