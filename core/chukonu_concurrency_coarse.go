@@ -199,7 +199,7 @@ func distributeTxsCoarse(accountAccessSequences *accountAccessSequenceMap, disCh
 
 			// 当前授予令牌的事务为只读事务，该地址可以继续进行令牌的发放
 			if !txAccessPre.CoarseWrite {
-				fmt.Println(tx.Hash(), token.address)
+				//fmt.Println(tx.Hash(), token.address)
 				disCh <- newAccountToken(token.address, nil)
 			}
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"math/big"
 	"sort"
+	"sync"
 )
 
 // StmTransaction is an Ethereum transaction.
@@ -17,6 +18,8 @@ type StmTransaction struct {
 	Index       int
 	Incarnation int
 	TxDB        *stmTxStateDB
+
+	dbMutex sync.Mutex // 获取初始状态时需要
 
 	accessAddress *types.AccessAddressMap
 }
@@ -590,6 +593,60 @@ func (s *StmTransaction) GetAllState(tx *types.Transaction) {
 			s.TxDB.stateObjects[addr] = txObj
 		}
 
+	}
+}
+
+func (s *StmTransaction) ReallyGetState(tx *types.Transaction, from common.Address) {
+	for addr, accessAddr := range *tx.AccessPre {
+		obj := s.TxDB.stateObjects[addr]
+		if obj != nil {
+			fmt.Println(obj.Nonce(), obj.Balance())
+
+			for key := range *accessAddr.Slots {
+				if value, ok := obj.originStorage[key]; ok {
+					fmt.Println(key, value)
+				} else {
+
+					if addr == from {
+						fmt.Println("no match address")
+					}
+				}
+			}
+		} else {
+			if addr == from {
+				fmt.Println("no match address")
+			}
+
+		}
+
+	}
+}
+
+func (s *StmTransaction) GetAccountState(addr common.Address, accessAddr *types.AccessAddress) {
+	s.dbMutex.Lock()
+	defer s.dbMutex.Unlock()
+
+	stmObj := s.TxDB.statedb.getDeletedStateObject(addr)
+	if stmObj != nil {
+		txObj := newStmTxStateObject(s.TxDB, s.TxDB.statedb, addr, *(stmObj.data.Copy()), s.Index, s.Incarnation)
+		txObj.dirtyCode = stmObj.dirtyCode
+		txObj.suicided = stmObj.suicided
+		txObj.deleted = stmObj.deleted
+
+		// 该地址为合约地址，则需提取Code
+		if !bytes.Equal(stmObj.data.CodeHash, types.EmptyCodeHash.Bytes()) {
+			code, err := s.TxDB.statedb.db.ContractCode(stmObj.addrHash, common.BytesToHash(stmObj.data.CodeHash))
+			if err != nil {
+				s.TxDB.statedb.setError(fmt.Errorf("can't load code hash %x: %v", stmObj.data.CodeHash, err))
+			}
+			txObj.code = common.CopyBytes(code)
+		}
+
+		for key := range *accessAddr.Slots {
+			value := stmObj.GetState(s.TxDB.statedb.db, key, s.Index, -1)
+			txObj.originStorage[key] = value
+		}
+		s.setStateObject(txObj)
 	}
 }
 

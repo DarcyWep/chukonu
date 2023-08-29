@@ -409,6 +409,12 @@ func testChuKoNu() {
 	stateDbCoarse := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
 	stateDbCoarseCopy := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
 
+	stateDbCoarseRW := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
+	stateDbCoarseRWCopy := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
+
+	stateDbFine := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
+	stateDbFineCopy := database.NewStmStateDB(blockPre.Header(), stateCache, snaps)
+
 	statePre, _ := state.New(parent.Root, stateCache, snaps)
 	statePreCopy := statePre.Copy()
 	processor := core.NewStateProcessor(config.MainnetChainConfig, db)
@@ -431,6 +437,12 @@ func testChuKoNu() {
 
 		core.ChuKoNuConcurrencyCoarse(block, stateDbCoarseCopy, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
 		core.ChuKoNuConcurrencyCoarse(block, stateDbCoarse, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
+
+		core.ChuKoNuConcurrencyCoarseRW(block, stateDbCoarseRWCopy, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
+		core.ChuKoNuConcurrencyCoarseRW(block, stateDbCoarseRW, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
+
+		core.ChuKoNuConcurrencyFineRW(block, stateDbFineCopy, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
+		core.ChuKoNuConcurrencyFineRW(block, stateDbFine, vm.Config{EnablePreimageRecording: false}, config.MainnetChainConfig, db)
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), hash1106 == *primitiveRoot, hash1106 == *stmRoot)
 	}
 
