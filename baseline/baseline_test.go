@@ -115,3 +115,25 @@ func TestConflictChain(t *testing.T) {
 		chukonu.ConflictChain(txs)
 	}
 }
+
+func TestTxSum(t *testing.T) {
+	db, err := setting.OpenLeveldb("/Volumes/ETH_DATA/newdata/nativedb") // get native transaction or merge transaction
+	defer db.Close()
+	if err != nil {
+		fmt.Println("open leveldb error,", err)
+		return
+	}
+
+	var txSum = 0
+	min, max, addSpan := big.NewInt(14000001), big.NewInt(14200001), big.NewInt(1)
+	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
+		txs, err := pureData.GetTransactionsByNumber(db, i)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		txSum += len(txs) - 1
+	}
+
+	fmt.Println(txSum)
+}

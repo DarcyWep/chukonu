@@ -49,15 +49,18 @@ func newAccountTokenFine(addr common.Address, tx *fineRWTx, readOnly bool) *acco
 }
 
 type accountAccessSequenceFineMap map[common.Address]*accountAccessSequenceFine
+
+// type accountAccessSequenceFineMap sync.Map
 type accountAccessSequenceFine struct {
 	mutex   sync.Mutex
 	address common.Address
 
 	pendingTxs            *fineRWTxs // 该地址等待执行的队列
 	slotAccessSequenceMap *slotAccessSequenceFineMap
-	checkIntegrity        map[int]int // 交易在该地址下已经获取了多少个状态, txIndexInAccessSequence -> slotNum
-	slotNum               []int       // 在该地址下的该交易需要获取多少个状态才能执行, txIndexInAccessSequence -> slotNum
-	readyTxs              []int       // 准备就绪队列 (等待获取状态并执行的队列, 需按照顺序进行排列)
+	//slotAccessSequenceMap *sync.Map
+	checkIntegrity map[int]int // 交易在该地址下已经获取了多少个状态, txIndexInAccessSequence -> got slot state num
+	slotNum        []int       // 在该地址下的该交易需要获取多少个状态才能执行, txIndexInAccessSequence -> slotNum
+	readyTxs       []int       // 准备就绪队列 (等待获取状态并执行的队列, 需按照顺序进行排列)
 
 	executingTxsNum   int // 正在执行的交易个数
 	readAccessTxsNum  int // 获取了读权限交易的个数
@@ -87,7 +90,7 @@ func newAccountAccessSequenceFine(addr common.Address, txs *fineRWTxs, len int) 
 
 type slotAccessSequenceFineMap map[common.Hash]*slotAccessSequenceFine
 type slotAccessSequenceFine struct {
-	mutex                   sync.Mutex
+	//mutex                   sync.Mutex
 	slotKey                 common.Hash
 	pendingTxs              *fineRWTxs // 该地址等待执行的队列
 	txIndexInAccessSequence []int      // 交易序列在accessSequence中的位置
