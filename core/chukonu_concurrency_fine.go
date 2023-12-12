@@ -204,7 +204,7 @@ func constructionOrderFineRW(block *types.Block, accountAccessSequences *account
 	fineTxs := make(fineRWTxs, 0)
 	for i, tx := range block.Transactions() {
 		tx.Index = i
-		fineTxs = append(fineTxs, newFineRWTx(tx, state.NewStmTransaction(tx, tx.Index, stmStateDB)))
+		fineTxs = append(fineTxs, newFineRWTx(tx, state.NewStmTransaction(tx, tx.Index, stmStateDB, false)))
 	}
 
 	// 	地址对应的队列

@@ -143,7 +143,7 @@ func constructionOrderCoarseRW(block *types.Block, accountAccessSequences *accou
 	coarseTxs := make(coarseRWTxs, 0)
 	for i, tx := range block.Transactions() {
 		tx.Index = i
-		coarseTxs = append(coarseTxs, newCoarseRWTx(tx, state.NewStmTransaction(tx, tx.Index, stmStateDB)))
+		coarseTxs = append(coarseTxs, newCoarseRWTx(tx, state.NewStmTransaction(tx, tx.Index, stmStateDB, false)))
 	}
 
 	// 	地址对应的队列

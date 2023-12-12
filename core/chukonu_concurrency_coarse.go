@@ -241,7 +241,7 @@ func executionTxsCoarse(execCh executionCoarseChan, disCh distributeCoarseChan, 
 		//fmt.Println(tx.Index, tx.Hash())
 		blockContext := NewEVMBlockContext(header, chainDb, nil)
 
-		stmTxDB := state.NewStmTransaction(tx, tx.Index, stmStateDB)
+		stmTxDB := state.NewStmTransaction(tx, tx.Index, stmStateDB, false)
 		stmTxDB.GetAllState(tx)
 		vmenv := vm.NewEVM(blockContext, vm.TxContext{}, stmTxDB, config, cfg)
 		msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number), header.BaseFee)

@@ -55,7 +55,7 @@ type stmTxStateDB struct {
 }
 
 // NewStmTransaction creates a new state from a given trie.
-func NewStmTransaction(tx *types.Transaction, index int, statedb *StmStateDB) *StmTransaction {
+func NewStmTransaction(tx *types.Transaction, index int, statedb *StmStateDB, simulation bool) *StmTransaction {
 	stmTx := &StmTransaction{
 		Tx:    tx,
 		Index: index,
@@ -71,6 +71,9 @@ func NewStmTransaction(tx *types.Transaction, index int, statedb *StmStateDB) *S
 			transientStorage:     newTransientStorage(),
 		},
 		accessAddress: types.NewAccessAddressMap(),
+	}
+	if !simulation {
+		stmTx.accessAddress = nil
 	}
 	return stmTx
 }
@@ -443,7 +446,7 @@ func (s *StmTransaction) createObject(addr common.Address) (newobj, prev *stmTxS
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StmTransaction) CreateAccount(addr common.Address) {
-	addAccessAddr(s.accessAddress, addr, false, false)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	newObj, prev := s.createObject(addr)
 	if prev != nil {
 		newObj.setBalance(prev.data.Balance)

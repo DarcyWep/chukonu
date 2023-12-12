@@ -58,6 +58,7 @@ type Transaction struct {
 
 	// rw-set
 	AccessPre  *AccessAddressMap
+	AccessSim  *AccessAddressMap
 	AccessExec *AccessAddressMap
 
 	// caches

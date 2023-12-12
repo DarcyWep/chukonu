@@ -680,7 +680,7 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StateDB) CreateAccount(addr common.Address) {
-	addAccessAddr(s.accessAddress, addr, false, false)
+	addAccessAddr(s.accessAddress, addr, true, false)
 	newObj, prev := s.createObject(addr)
 	if prev != nil {
 		newObj.setBalance(prev.data.Balance)
@@ -970,11 +970,14 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 // SetTxContext sets the current transaction hash and index which are
 // used when the EVM emits new state logs. It should be invoked before
 // transaction execution.
-func (s *StateDB) SetTxContext(thash common.Hash, ti int) {
+func (s *StateDB) SetTxContext(thash common.Hash, ti int, simulation bool) {
 	//fmt.Println(s)
 	s.thash = thash
 	s.txIndex = ti
-	s.accessAddress = types.NewAccessAddressMap()
+	s.accessAddress = nil
+	if simulation {
+		s.accessAddress = types.NewAccessAddressMap()
+	}
 }
 
 func (s *StateDB) clearJournalAndRefund() {
