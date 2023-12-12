@@ -3,7 +3,7 @@ module chukonu
 go 1.19
 
 require (
-	github.com/DarcyWep/pureData v1.2.3
+	github.com/DarcyWep/pureData v1.3.0
 	github.com/VictoriaMetrics/fastcache v1.6.0
 	github.com/cockroachdb/pebble v0.0.0-20230209160836-829675f94811
 	github.com/ethereum/go-ethereum v1.11.5
