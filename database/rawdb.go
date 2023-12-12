@@ -10,9 +10,7 @@ import (
 	"math/big"
 )
 
-func OpenDatabaseWithFreezer(ethConfig *config.EthConfig) (ethdb.Database, error) {
-	rawConfig := defaultRawConfig()
-
+func OpenDatabaseWithFreezer(ethConfig *config.EthConfig, rawConfig *RawConfig) (ethdb.Database, error) {
 	if ethConfig.NoPruning && ethConfig.TrieDirtyCache > 0 {
 		if ethConfig.SnapshotCache > 0 {
 			ethConfig.TrieCleanCache += ethConfig.TrieDirtyCache * 3 / 5

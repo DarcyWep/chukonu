@@ -1207,6 +1207,9 @@ func (s *StateDB) AccessAddress() *types.AccessAddressMap {
 
 // addAccessAddr 将交易所访问的地址进行记录
 func addAccessAddr(accessAddress *types.AccessAddressMap, addr common.Address, readOnly bool, isSlot bool) {
+	if accessAddress == nil {
+		return
+	}
 	accessAddr, ok := (*accessAddress)[addr]
 	if !ok {
 		accessAddr = types.NewAccessAddress()
@@ -1231,6 +1234,9 @@ func addAccessAddr(accessAddress *types.AccessAddressMap, addr common.Address, r
 
 // addAccessSlot 将交易所访问的存储槽进行记录
 func addAccessSlot(accessAddress *types.AccessAddressMap, addr common.Address, slot common.Hash, readOnly bool, txIndex int) {
+	if accessAddress == nil {
+		return
+	}
 	addAccessAddr(accessAddress, addr, readOnly, true)
 	accessAddr, _ := (*accessAddress)[addr]
 	accessSlot, ok := (*accessAddr.Slots)[slot]

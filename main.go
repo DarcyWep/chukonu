@@ -15,7 +15,7 @@ import (
 )
 
 func replayTransactions() {
-	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
 		fmt.Println("open leveldb", err)
 		return
@@ -33,7 +33,7 @@ func replayTransactions() {
 	var (
 		parent     *types.Header  = blockPre.Header()
 		stmRoot    *common.Hash   = &parent.Root
-		stateCache state.Database = database.NewStateCache(db)
+		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
 	)
 
@@ -124,7 +124,7 @@ func addAccessList2AddrChu(tx *types.Transaction, accessChu *types.AccessAddress
 }
 
 func compare() {
-	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
 		fmt.Println("open leveldb", err)
 		return
@@ -141,7 +141,7 @@ func compare() {
 	var (
 		parent *types.Header = blockPre.Header()
 		//parentRoot *common.Hash   = &parent.Root
-		stateCache state.Database = database.NewStateCache(db)
+		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
 	)
 
@@ -378,7 +378,7 @@ func compareAccess(accessAddrNormal *[]*types.AccessAddressMap, accessAddrChu *[
 }
 
 func testChuKoNu() {
-	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
 		fmt.Println("open leveldb", err)
 		return
@@ -396,7 +396,7 @@ func testChuKoNu() {
 	var (
 		parent     *types.Header  = blockPre.Header()
 		stmRoot    *common.Hash   = &parent.Root
-		stateCache state.Database = database.NewStateCache(db)
+		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
 	)
 
@@ -449,58 +449,60 @@ func testChuKoNu() {
 }
 
 func main() {
-	testChuKoNu()
+	//testChuKoNu()
 	//replayTransactions()
 	//for i := 0; i < 100; i++ {
 	//	compare()
 	//}
 	//compare()
+	replay()
 	//fmt.Println(common.Hex2Bytes("0000000000000000000000000000000000000000000000000000000000000001"))
 	//fmt.Println(len("0000000000000000000000008f20a07e0541ca2db9152d7e521aee5d639b211d0000000000000000000000000000000000000000000000c893d09c8f51500000"))
 	//fmt.Println(len("000000000000000000000000a220f79928906b33ecc80d4d53fa1d750ffb161e000000000000000000000000000000000000000000000000000000012a05f200"))
 }
 
-//func replay() {
-//	rawConfig := database.DefaultRawConfig()
-//	rawConfig.Path = "/Users/darcywep/Projects/GoProjects/chukonu-copychain/copychain"
-//	rawConfig.Ancient = "/Users/darcywep/Projects/GoProjects/chukonu-copychain/copychain/ancient"
-//	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, rawConfig)
-//	if err != nil {
-//		fmt.Println("open leveldb", err)
-//		return
-//	}
-//	defer db.Close()
-//	var number uint64 = 9776809
-//	//var number uint64 = 11090500
-//	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
-//	if err != nil {
-//		fmt.Println(err)
-//		return
-//	}
-//
-//	var (
-//		parent     *types.Header  = blockPre.Header()
-//		stateCache state.Database = database.NewStateCache(db)
-//	)
-//
-//	statePre, err := state.New(parent.Root, stateCache, nil)
-//	if err != nil {
-//		fmt.Println(err)
-//	}
-//	processor := core.NewStateProcessor(config.MainnetChainConfig, db)
-//
-//	//var accessAddrNormal []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
-//	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776860), big.NewInt(1)
-//	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
-//		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
-//		if err2 != nil {
-//			fmt.Println(err2)
-//			return
-//		}
-//
-//		root, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
-//		//accessAddrNormal = append(accessAddrNormal, *accessAddrNormalTmp...)
-//
-//		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), block.Root() == *root)
-//	}
-//}
+func replay() {
+	rawConfig := database.DefaultRawConfig()
+	rawConfig.Path = "/Users/darcywep/Projects/ethereum/ethereumdata/copchaincopy"
+	rawConfig.Ancient = "/Users/darcywep/Projects/ethereum/ethereumdata/copchaincopy/ancient"
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, rawConfig)
+	if err != nil {
+		fmt.Println("open leveldb", err)
+		return
+	}
+	defer db.Close()
+	var number uint64 = 14000000
+	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	var stateConfig = database.DefaultStateDBConfig()
+	stateConfig.Journal = "/Users/darcywep/Projects/ethereum/ethereumdata/triecache"
+	var (
+		parent     *types.Header  = blockPre.Header()
+		stateCache state.Database = database.NewStateCache(db, stateConfig)
+	)
+
+	statePre, err := state.New(parent.Root, stateCache, nil)
+	if err != nil {
+		fmt.Println(err)
+	}
+	processor := core.NewStateProcessor(config.MainnetChainConfig, db)
+	fmt.Println(statePre.GetBalance(common.HexToAddress("0xEA674fdDe714fd979de3EdF0F56AA9716B898ec8")))
+
+	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020001), big.NewInt(1)
+	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
+		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
+		if err2 != nil {
+			fmt.Println(err2)
+			return
+		}
+
+		root, _, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
+		fmt.Println(root)
+
+		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), block.Root() == *root)
+	}
+}

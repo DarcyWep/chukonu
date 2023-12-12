@@ -11,7 +11,7 @@ type RawConfig struct {
 	ReadOnly  bool
 }
 
-func defaultRawConfig() *RawConfig {
+func DefaultRawConfig() *RawConfig {
 	if runtime.GOOS == "darwin" { // MacOS
 		return &RawConfig{
 			Path:      "/Volumes/ETH_DATA/ethereum/geth/chaindata",
@@ -41,7 +41,7 @@ type StateDBConfig struct {
 	Preimages bool
 }
 
-func defaultStateDBConfig() *StateDBConfig {
+func DefaultStateDBConfig() *StateDBConfig {
 	if runtime.GOOS == "darwin" { // MacOS
 		return &StateDBConfig{
 			Cache:     614,

@@ -11,8 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-func NewStateCache(db ethdb.Database) state.Database {
-	config := defaultStateDBConfig()
+func NewStateCache(db ethdb.Database, config *StateDBConfig) state.Database {
 	return state.NewDatabaseWithConfig(db, &trie.Config{
 		Cache:     config.Cache,
 		Journal:   config.Journal,

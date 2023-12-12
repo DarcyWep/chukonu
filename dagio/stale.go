@@ -20,7 +20,7 @@ const (
 )
 
 func staleCompare() {
-	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig)
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
 		fmt.Println("open leveldb", err)
 		return
@@ -35,7 +35,7 @@ func staleCompare() {
 
 	var (
 		parent     *types.Header  = blockPre.Header()
-		stateCache state.Database = database.NewStateCache(db)
+		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 		snaps      *snapshot.Tree = database.NewSnap(db, stateCache, blockPre.Header())
 	)
 
