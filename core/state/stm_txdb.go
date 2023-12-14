@@ -12,12 +12,26 @@ import (
 	"sync"
 )
 
+type SlotList struct {
+	Addr common.Address
+	Slot common.Hash
+}
+
+func newSlotList(addr common.Address, slot common.Hash) *SlotList {
+	return &SlotList{
+		Addr: addr,
+		Slot: slot,
+	}
+}
+
 // StmTransaction is an Ethereum transaction.
 type StmTransaction struct {
 	Tx          *types.Transaction
 	Index       int
 	Incarnation int
 	TxDB        *stmTxStateDB
+
+	Slots []*SlotList
 
 	dbMutex sync.Mutex // 获取初始状态时需要
 
@@ -59,6 +73,7 @@ func NewStmTransaction(tx *types.Transaction, index int, statedb *StmStateDB, si
 	stmTx := &StmTransaction{
 		Tx:    tx,
 		Index: index,
+		Slots: make([]*SlotList, 0),
 		TxDB: &stmTxStateDB{
 			statedb:              statedb,
 			stateObjects:         make(map[common.Address]*stmTxStateObject),
@@ -208,6 +223,7 @@ func (s *StmTransaction) GetCodeHash(addr common.Address) common.Hash {
 // GetState retrieves a value from the given account's storage trie.
 func (s *StmTransaction) GetState(addr common.Address, hash common.Hash) common.Hash {
 	addAccessSlot(s.accessAddress, addr, hash, true, s.Index)
+	s.Slots = append(s.Slots, newSlotList(addr, hash))
 	var stateHash common.Hash = common.Hash{}
 	stmTxStateObject := s.getStateObject(addr)
 	if stmTxStateObject != nil {

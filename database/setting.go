@@ -14,10 +14,10 @@ type RawConfig struct {
 func DefaultRawConfig() *RawConfig {
 	if runtime.GOOS == "darwin" { // MacOS
 		return &RawConfig{
-			Path:      "/Volumes/ETH_DATA/ethereum/geth/chaindata",
+			Path:      "/Users/darcywep/Projects/ethereum/ethereumdata/copchaincopy",
 			Cache:     2048,
 			Handles:   5120,
-			Ancient:   "/Volumes/ETH_DATA/ethereum/geth/chaindata/ancient",
+			Ancient:   "/Users/darcywep/Projects/ethereum/ethereumdata/copchaincopy/ancient",
 			Namespace: "eth/db/chaindata/",
 			ReadOnly:  false,
 		}
@@ -45,7 +45,7 @@ func DefaultStateDBConfig() *StateDBConfig {
 	if runtime.GOOS == "darwin" { // MacOS
 		return &StateDBConfig{
 			Cache:     614,
-			Journal:   "/Users/darcywep/Projects/ethereum/execution/geth/triecache",
+			Journal:   "/Users/darcywep/Projects/ethereum/ethereumdata/triecache",
 			Preimages: false,
 		}
 	} else {

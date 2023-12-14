@@ -73,7 +73,7 @@ func IsERCTransfer(input []byte) ([]byte, bool) {
 	if len(input) < 4 {
 		return []byte(""), false
 	}
-	if common.Bytes2Hex(input[:4]) == TransferKey {
+	if common.Bytes2Hex(input[:4]) == TransferKey || common.Bytes2Hex(input[:4]) == ApproveKey {
 		//parameter
 		parameters := input[4:]
 		if len(parameters) != 64 { // 超过或少于两个参数则不是transfer

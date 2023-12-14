@@ -130,8 +130,7 @@ func compare() {
 		return
 	}
 	defer db.Close()
-	var number uint64 = 9776809
-	//var number uint64 = 11090500
+	var number uint64 = 14000000
 	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
 	if err != nil {
 		fmt.Println(err)
@@ -163,7 +162,7 @@ func compare() {
 	)
 	//min, max, addSpan := big.NewInt(9776810), big.NewInt(9776811), big.NewInt(1)
 
-	min, max, addSpan := big.NewInt(9776810), big.NewInt(9776980), big.NewInt(1)
+	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020001), big.NewInt(1)
 	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
 		//stateDb = nil
 		//stateDb, _ = state.NewStmStateDB(parent.Root, stateCache, snaps) // 每个区块重新构建statedb以释放内存
@@ -175,7 +174,8 @@ func compare() {
 			return
 		}
 
-		_, accessAddrNormalTmp, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
+		root1, accessAddrNormalTmp, _, _, _, _ := processor.Process(block, statePre, vm.Config{EnablePreimageRecording: false})
+		root2, _, _, _, _ := stmProcessor.ProcessSerial(block, stateDb, vm.Config{EnablePreimageRecording: false})
 		//fmt.Println("finish processor", block.Number())
 		accessAddrChuTmp := stmProcessor.ProcessConcurrently(block, stateDb, vm.Config{EnablePreimageRecording: false})
 		accessAddrNormal = append(accessAddrNormal, *accessAddrNormalTmp...)
@@ -192,6 +192,8 @@ func compare() {
 		if txsLen >= testTxsLen { // 对比1000个交易
 			break
 		}
+		fmt.Println(root1)
+		fmt.Println(root2)
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
 		//fmt.Println()
 	}
@@ -454,14 +456,18 @@ func main() {
 	//for i := 0; i < 100; i++ {
 	//	compare()
 	//}
-	//compare()
-	replay()
+	compare()
+	//compareRW()
+	//replay()
 }
 
 func replay() {
 	rawConfig := database.DefaultRawConfig()
 	rawConfig.Path = "/Users/darcywep/Projects/ethereum/ethereumdata/copchaincopy"
 	rawConfig.Ancient = "/Users/darcywep/Projects/ethereum/ethereumdata/copchaincopy/ancient"
+	var stateConfig = database.DefaultStateDBConfig()
+	stateConfig.Journal = "/Users/darcywep/Projects/ethereum/ethereumdata/triecache"
+
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, rawConfig)
 	if err != nil {
 		fmt.Println("open leveldb", err)
@@ -475,8 +481,6 @@ func replay() {
 		return
 	}
 
-	var stateConfig = database.DefaultStateDBConfig()
-	stateConfig.Journal = "/Users/darcywep/Projects/ethereum/ethereumdata/triecache"
 	var (
 		parent     *types.Header  = blockPre.Header()
 		stateCache state.Database = database.NewStateCache(db, stateConfig)

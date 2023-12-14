@@ -20,8 +20,8 @@ type SimulationProcessor struct {
 	chainDb ethdb.Database      // Canonical block chain
 }
 
-func NewSimulationProcessor(config *params.ChainConfig, chainDb ethdb.Database) *StmStateProcessor {
-	return &StmStateProcessor{
+func NewSimulationProcessor(config *params.ChainConfig, chainDb ethdb.Database) *SimulationProcessor {
+	return &SimulationProcessor{
 		config:  config,
 		chainDb: chainDb,
 	}
@@ -40,24 +40,28 @@ func (p *SimulationProcessor) SerialSimulation(block *types.Block, stmStateDB *s
 	)
 
 	blockContext := NewEVMBlockContext(header, p.chainDb, nil)
+	//fmt.Println(stmStateDB.GetBalance(common.HexToAddress("0xf85219B9bB810894020f2c19eA2952f3aaBf916e,")))
 
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		stmTxDB := state.NewStmTransaction(tx, i, stmStateDB, true)
+		//stmTxDB.GetAccountState()
 		vmenv := vm.NewEVM(blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 		msg, err := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 		if err != nil {
+			fmt.Println(err)
 			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		receipt, fee, err, _ := applySimulationProcessor(msg, gp, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
 		allFee.Add(allFee, fee)
 		if err != nil {
+			fmt.Println(err)
 			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		stmTxDB.Validation(true)
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
-		tx.AccessPre = stmTxDB.AccessAddress()
+		tx.AccessSim = stmTxDB.AccessAddress()
 	}
 	stmStateDB.AddBalance(blockContext.Coinbase, allFee)
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
@@ -69,6 +73,7 @@ func (p *SimulationProcessor) SerialSimulation(block *types.Block, stmStateDB *s
 	simulationAccumulateRewards(p.config, stmStateDB, header, block.Uncles())
 
 	root := stmStateDB.IntermediateRoot(p.config.IsEIP158(header.Number), -1)
+
 	return &root, receipts, allLogs, *usedGas, nil
 }
 
@@ -112,36 +117,59 @@ func (p *SimulationProcessor) applyConcurrent(header *types.Header, tx *types.Tr
 		gp          = new(GasPool).AddGas(header.GasLimit)
 	)
 
-	stmTxDB := state.NewStmTransaction(tx, i, stmStateDB, true)
-	vmenv := vm.NewEVM(*blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 	msg, _ := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 
-	if tune {
-		// 避免Nonce错误
-		stmTxDB.SetNonce(msg.From, msg.Nonce)
+	var (
+		ok           bool = false
+		receipt      *types.Receipt
+		result       *ExecutionResult
+		tuneTransfer *state.SlotList = nil
+		stmTxDB      *state.StmTransaction
+		vmenv        *vm.EVM
+	)
+	var newData []byte
+	for {
+		stmTxDB = state.NewStmTransaction(tx, i, stmStateDB, true)
+		vmenv = vm.NewEVM(*blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 
-		// 避免Balance错误
-		mgval := new(big.Int).SetUint64(msg.GasLimit)
-		mgval = mgval.Mul(mgval, msg.GasPrice)
-		balanceCheck := mgval
-		if msg.GasFeeCap != nil {
-			balanceCheck = new(big.Int).SetUint64(msg.GasLimit)
-			balanceCheck = balanceCheck.Mul(balanceCheck, msg.GasFeeCap)
-			balanceCheck.Add(balanceCheck, msg.Value)
+		if tune {
+			// 避免Nonce错误
+			stmTxDB.SetNonce(msg.From, msg.Nonce)
+
+			// 避免Balance错误
+			mgval := new(big.Int).SetUint64(msg.GasLimit)
+			mgval = mgval.Mul(mgval, msg.GasPrice)
+			balanceCheck := mgval
+			if msg.GasFeeCap != nil {
+				balanceCheck = new(big.Int).SetUint64(msg.GasLimit)
+				balanceCheck = balanceCheck.Mul(balanceCheck, msg.GasFeeCap)
+				balanceCheck.Add(balanceCheck, msg.Value)
+			}
+			stmTxDB.AddBalance(msg.From, balanceCheck)
+
+			// 避免Transfer错误
+			newData, ok = setting.IsERCTransfer(msg.Data)
+			if tuneTransfer != nil {
+				if ok {
+					msg.Data = common.CopyBytes(newData)
+				}
+				stmTxDB.SetState(tuneTransfer.Addr, tuneTransfer.Slot, common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000009999"))
+			}
+
 		}
-		stmTxDB.AddBalance(msg.From, balanceCheck)
 
-		// 避免Transfer错误
-		newData, ok := setting.IsERCTransfer(msg.Data)
-		if ok {
-			msg.Data = common.CopyBytes(newData)
+		receipt, _, _, result = applySimulationProcessor(msg, gp, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
+		if !tune || result == nil || !ok {
+			break
+		} else {
+			fmt.Println(tx.Hash())
+			len_ := len(stmTxDB.Slots)
+			if len_ > 0 {
+				tuneTransfer = stmTxDB.Slots[len_-1]
+			}
 		}
 	}
 
-	receipt, _, _, result := applySimulationProcessor(msg, gp, stmTxDB, blockNumber, blockHash, tx, usedGas, vmenv)
-	if result != nil {
-
-	}
 	receipts = append(receipts, receipt)
 
 	accessAddrChan <- newAccessAddressChStruct(stmTxDB.AccessAddress(), i)

@@ -61,6 +61,7 @@ func (p *StmStateProcessor) ProcessSerial(block *types.Block, stmStateDB *state.
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		stmTxDB := state.NewStmTransaction(tx, i, stmStateDB, false)
+		fmt.Println(stmTxDB.GetBalance(common.HexToAddress("0xf85219B9bB810894020f2c19eA2952f3aaBf916e,")))
 		vmenv := vm.NewEVM(blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 		msg, err := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 		if err != nil {

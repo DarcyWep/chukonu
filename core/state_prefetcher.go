@@ -64,7 +64,7 @@ func (p *StatePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, c
 		if err != nil {
 			return // Also invalid block, bail out
 		}
-		statedb.SetTxContext(tx.Hash(), i)
+		statedb.SetTxContext(tx.Hash(), i, false)
 		if err := precacheTransaction(msg, p.config, gaspool, statedb, header, evm); err != nil {
 			//fmt.Println("prefetch error")
 			return // Ugh, something went horribly wrong, bail out
