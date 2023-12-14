@@ -1208,6 +1208,10 @@ func (s *StateDB) AccessAddress() *types.AccessAddressMap {
 	return s.accessAddress
 }
 
+func (s *StateDB) Trie() Trie {
+	return s.trie
+}
+
 // addAccessAddr 将交易所访问的地址进行记录
 func addAccessAddr(accessAddress *types.AccessAddressMap, addr common.Address, readOnly bool, isSlot bool) {
 	if accessAddress == nil {

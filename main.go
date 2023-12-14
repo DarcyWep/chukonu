@@ -450,15 +450,61 @@ func testChuKoNu() {
 
 }
 
+func testChuKoNuFast() {
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
+	if err != nil {
+		fmt.Println("open leveldb", err)
+		return
+	}
+	defer db.Close()
+	var number uint64 = 14000000
+	blockPre, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	var (
+		parent     *types.Header  = blockPre.Header()
+		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
+	)
+
+	statedb := database.NewStateDB(blockPre.Header(), stateCache, nil)
+	if statedb == nil {
+		return
+	}
+
+	chuKoNuStateDB, err := state.NewChuKoNuStateDB(parent.Root, stateCache, nil, statedb.Trie())
+	processor := core.NewStateProcessor(config.MainnetChainConfig, db)
+	chuKoNuProcessor := core.NewChuKoNuProcessor(config.MainnetChainConfig, db)
+
+	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020001), big.NewInt(1)
+	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
+		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
+		if err2 != nil {
+			fmt.Println(err2)
+			return
+		}
+
+		_, _, _, _, _, _ = processor.Process(block, statedb.Copy(), vm.Config{EnablePreimageRecording: false})
+		root, _, _, _, _, _ := processor.Process(block, statedb, vm.Config{EnablePreimageRecording: false})
+		chuKoNuRoot, _, _, _, _, _ := chuKoNuProcessor.Process(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
+
+		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), *root == *chuKoNuRoot)
+	}
+
+}
+
 func main() {
 	//testChuKoNu()
 	//replayTransactions()
 	//for i := 0; i < 100; i++ {
 	//	compare()
 	//}
-	compare()
+	//compare()
 	//compareRW()
 	//replay()
+	testChuKoNuFast()
 }
 
 func replay() {
