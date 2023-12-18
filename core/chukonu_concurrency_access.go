@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const chanSize = 1024
+const chanSize = 10240
 
 type distributeMap map[common.Address]types.Transactions
 type distributeChan chan *depQueue
@@ -105,6 +105,7 @@ func constructionOrder(block *types.Block, disCh distributeChan) int {
 	// 	地址对应的队列
 	for i, tx := range block.Transactions() {
 		tx.Index = i
+		//fmt.Println(tx.AccessPre)
 		tx.AccessSum = len(*tx.AccessPre)
 		for addr, _ := range *tx.AccessPre {
 			if _, ok := seQueue[addr]; !ok {

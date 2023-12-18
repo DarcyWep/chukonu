@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"sync"
 	"time"
 
 	"chukonu/core/types"
@@ -27,10 +28,11 @@ type ChuKoNuStateObject struct {
 	code       Code // contract bytecode, which gets set when code is loaded
 	originCode Code
 
-	originStableStorage Storage // last snapshot
-	originStorage       Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
-	pendingStorage      Storage // Storage entries that need to be flushed to disk, at the end of an entire block
-	dirtyStorage        Storage // Storage entries that have been modified in the current transaction execution
+	originStableStorageMutex sync.RWMutex
+	originStableStorage      Storage // last snapshot
+	originStorage            Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
+	pendingStorage           Storage // Storage entries that need to be flushed to disk, at the end of an entire block
+	dirtyStorage             Storage // Storage entries that have been modified in the current transaction execution
 
 	dirty bool // for single account state
 
@@ -497,15 +499,19 @@ func (s *ChuKoNuStateObject) OriginBalance() *big.Int {
 	return new(big.Int).Set(s.originData.Balance)
 }
 
-func (s *ChuKoNuStateObject) OriginState(db Database, key common.Hash) common.Hash {
-	if value, cached := s.originStableStorage[key]; cached {
+func (s *ChuKoNuStateObject) OriginState(db Database, statedb *ChuKoNuStateDB, key common.Hash) common.Hash {
+	s.originStableStorageMutex.RLock()
+	value, cached := s.originStableStorage[key]
+	s.originStableStorageMutex.RUnlock()
+	if cached {
 		return value
 	}
 
 	// If no live objects are available, attempt to use snapshots
 	var (
-		enc []byte
-		err error
+		enc    []byte
+		err    error
+		value1 common.Hash = common.Hash{}
 	)
 	if s.db.snap != nil {
 		start := time.Now()
@@ -514,36 +520,37 @@ func (s *ChuKoNuStateObject) OriginState(db Database, key common.Hash) common.Ha
 			s.db.SnapshotStorageReads += time.Since(start)
 		}
 	}
+	// 我们没有snapshot
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	if s.db.snap == nil || err != nil {
 		start := time.Now()
 		tr, err := s.getTrie(db)
 		if err != nil {
 			s.db.setError(err)
-			s.originStableStorage[key] = common.Hash{}
-			return common.Hash{}
 		}
+		statedb.trieMutex.Lock()
 		enc, err = tr.TryGet(key.Bytes())
+		statedb.trieMutex.Unlock()
 		if metrics.EnabledExpensive {
 			s.db.StorageReads += time.Since(start)
 		}
 		if err != nil {
 			s.db.setError(err)
-			s.originStableStorage[key] = common.Hash{}
-			return common.Hash{}
 		}
 	}
-	var value common.Hash
+
 	if len(enc) > 0 {
 		_, content, _, err := rlp.Split(enc)
 		if err != nil {
 			s.db.setError(err)
 		}
-		value.SetBytes(content)
+		value1.SetBytes(content)
 	}
-	s.originStableStorage[key] = value
-	s.originStorage[key] = value
-	return value
+	s.originStableStorageMutex.Lock()
+	s.originStableStorage[key] = value1
+	s.originStorage[key] = value1
+	s.originStableStorageMutex.Unlock()
+	return value1
 }
 
 func (s *ChuKoNuStateObject) OriginCodeHash() []byte {
@@ -578,4 +585,13 @@ func (s *ChuKoNuStateObject) OriginCodeSize(db Database) int {
 		return len(code)
 	}
 	return 0
+}
+
+func (s *ChuKoNuStateObject) SetOriginState(key, value common.Hash) {
+	s.originStableStorage[key] = value
+	s.originStorage[key] = value
+}
+
+func (s *ChuKoNuStateObject) Deleted() bool {
+	return s.deleted
 }

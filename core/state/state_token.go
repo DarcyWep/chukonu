@@ -24,7 +24,7 @@ func NewStateTokenToTxDB(addr common.Address, accountObj *ChuKoNuStateObject, sl
 		deleted:  deleted,
 	}
 	for _, slot := range slots { // 空的也记录，执行时可以不访问StateDB
-		st.storages[slot] = accountObj.GetState(accountObj.db.db, slot)
+		st.storages[slot] = accountObj.OriginState(accountObj.db.db, accountObj.db, slot)
 	}
 	return st
 }
@@ -38,7 +38,7 @@ func (st *StateTokenToTxDB) UpdateTxState(txdb *ChuKoNuTxStateDB) {
 	txdb.setStateObject(obj)
 }
 
-type StateTokenToStateDB struct {
+type StateTokenToAccountState struct {
 	address  common.Address
 	data     *types.StateAccount
 	code     []byte
@@ -46,8 +46,8 @@ type StateTokenToStateDB struct {
 	suicided bool
 }
 
-func NewStateTokenToAccountState(addr common.Address, data *types.StateAccount, storages Storage, code []byte, suicided bool) *StateTokenToStateDB {
-	return &StateTokenToStateDB{
+func NewStateTokenToAccountState(addr common.Address, data *types.StateAccount, storages Storage, code []byte, suicided bool) *StateTokenToAccountState {
+	return &StateTokenToAccountState{
 		address:  addr,
 		data:     data,
 		code:     code,
@@ -56,7 +56,7 @@ func NewStateTokenToAccountState(addr common.Address, data *types.StateAccount, 
 	}
 }
 
-func (st *StateTokenToStateDB) UpdateAccountState(accountObject *ChuKoNuStateObject) {
+func (st *StateTokenToAccountState) UpdateAccountState(accountObject *ChuKoNuStateObject) {
 	if st.data != nil {
 		accountObject.dirty = true
 		accountObject.data.Nonce = st.data.Nonce
@@ -76,8 +76,8 @@ func (st *StateTokenToStateDB) UpdateAccountState(accountObject *ChuKoNuStateObj
 	}
 }
 
-func (st *StateTokenToStateDB) deepCopy() *StateTokenToStateDB {
-	stoken := &StateTokenToStateDB{
+func (st *StateTokenToAccountState) deepCopy() *StateTokenToAccountState {
+	stoken := &StateTokenToAccountState{
 		address:  st.address,
 		data:     nil,
 		code:     nil,

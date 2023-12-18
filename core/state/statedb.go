@@ -974,10 +974,11 @@ func (s *StateDB) SetTxContext(thash common.Hash, ti int, simulation bool) {
 	//fmt.Println(s)
 	s.thash = thash
 	s.txIndex = ti
-	s.accessAddress = nil
-	if simulation {
-		s.accessAddress = types.NewAccessAddressMap()
-	}
+	s.accessAddress = types.NewAccessAddressMap()
+	//s.accessAddress = nil
+	//if simulation {
+	//	s.accessAddress = types.NewAccessAddressMap()
+	//}
 }
 
 func (s *StateDB) clearJournalAndRefund() {

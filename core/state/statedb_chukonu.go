@@ -28,7 +28,9 @@ import (
 type ChuKoNuStateDB struct {
 	db         Database
 	prefetcher *triePrefetcher
-	trie       Trie
+
+	trieMutex sync.Mutex
+	trie      Trie
 	//hasher     crypto.KeccakState
 
 	// originalRoot is the pre-state root, before any changes were made.
@@ -41,11 +43,13 @@ type ChuKoNuStateDB struct {
 	snapStorage  map[common.Hash]map[common.Hash][]byte
 
 	// This map holds 'live' objects, which will get modified while processing a state transition.
-	objectMutex          sync.RWMutex
-	stateObjects         map[common.Address]*ChuKoNuStateObject
-	stateObjectsPending  map[common.Address]struct{} // State objects finalized but not yet written to the trie
-	stateObjectsDirty    map[common.Address]struct{} // State objects modified in the current execution
-	stateObjectsDestruct map[common.Address]struct{} // State objects destructed in the block
+	objectMutex         sync.RWMutex // 并发读取使用
+	stateObjects        map[common.Address]*ChuKoNuStateObject
+	stateObjectsPending map[common.Address]struct{} // State objects finalized but not yet written to the trie
+
+	stateObjectsDirtyMutex sync.Mutex
+	stateObjectsDirty      map[common.Address]struct{} // State objects modified in the current execution
+	stateObjectsDestruct   map[common.Address]struct{} // State objects destructed in the block
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -596,6 +600,8 @@ func (s *ChuKoNuStateDB) getDeletedStateObject(addr common.Address) *ChuKoNuStat
 			return nil
 		}
 		if data == nil {
+			obj := newChuKoNuObject(s, addr, types.StateAccount{}, true)
+			s.setStateObject(obj)
 			return nil
 		}
 	}
@@ -697,6 +703,10 @@ func (db *ChuKoNuStateDB) ForEachStorage(addr common.Address, cb func(key, value
 		}
 	}
 	return nil
+}
+
+func (s *ChuKoNuStateDB) Trie() Trie {
+	return s.trie
 }
 
 // Copy creates a deep, independent copy of the state.
@@ -1195,35 +1205,100 @@ func (s *ChuKoNuStateDB) appendJournal(journal *chuKoNuJournal, entry chuKoNuJou
 
 }
 
+func (s *ChuKoNuStateDB) setOriginStateObject(object *ChuKoNuStateObject) {
+	s.objectMutex.Lock()
+	s.stateObjects[object.Address()] = object
+	s.objectMutex.Unlock()
+}
+
+func (s *ChuKoNuStateDB) getOriginStateObject(addr common.Address) *ChuKoNuStateObject {
+	// Prefer live objects if any is available
+	s.objectMutex.RLock()
+	obj := s.stateObjects[addr]
+	s.objectMutex.RUnlock()
+	if obj != nil {
+		return obj
+	}
+	// If no live objects are available, attempt to use snapshots
+	var data *types.StateAccount
+	if s.snap != nil {
+		start := time.Now()
+		// origin -> acc, err := s.snap.Account(crypto.HashData(s.hasher, addr.Bytes()))
+		acc, err := s.snap.Account(crypto.HashData(crypto.NewKeccakState(), addr.Bytes()))
+		if metrics.EnabledExpensive {
+			s.SnapshotAccountReads += time.Since(start)
+		}
+		if err == nil {
+			if acc == nil {
+				return nil
+			}
+			data = &types.StateAccount{
+				Nonce:    acc.Nonce,
+				Balance:  acc.Balance,
+				CodeHash: acc.CodeHash,
+				Root:     common.BytesToHash(acc.Root),
+			}
+			if len(data.CodeHash) == 0 {
+				data.CodeHash = types.EmptyCodeHash.Bytes()
+			}
+			if data.Root == (common.Hash{}) {
+				data.Root = types.EmptyRootHash
+			}
+		}
+	}
+	// If snapshot unavailable or reading from it failed, load from the database
+	if data == nil {
+		start := time.Now()
+		var err error
+		s.trieMutex.Lock()
+		data, err = s.trie.TryGetAccount(addr)
+		s.trieMutex.Unlock()
+		if metrics.EnabledExpensive {
+			s.AccountReads += time.Since(start)
+		}
+		if err != nil {
+			s.setError(fmt.Errorf("getDeleteStateObject (%x) error: %w", addr.Bytes(), err))
+			return nil
+		}
+		if data == nil {
+			data = &types.StateAccount{}
+		}
+	}
+	// Insert into the live set
+	obj = newChuKoNuObject(s, addr, *data, true)
+	s.setOriginStateObject(obj)
+	return obj
+}
+
 // GetOriginBalance retrieves the balance from the given address or 0 if object not found
 func (s *ChuKoNuStateDB) GetOriginBalance(addr common.Address) *big.Int {
-	obj := s.getDeletedStateObject(addr)
+	obj := s.getOriginStateObject(addr)
 	return obj.OriginBalance()
 }
 
 func (s *ChuKoNuStateDB) GetOriginNonce(addr common.Address) uint64 {
-	obj := s.getDeletedStateObject(addr)
+	obj := s.getOriginStateObject(addr)
 	return obj.OriginNonce()
 }
 
 func (s *ChuKoNuStateDB) GetOriginCodeHash(addr common.Address) common.Hash {
-	obj := s.getDeletedStateObject(addr)
+	obj := s.getOriginStateObject(addr)
 	return common.BytesToHash(obj.OriginCodeHash())
 }
 
 // GetOriginState retrieves a value from the given account's storage trie.
 func (s *ChuKoNuStateDB) GetOriginState(addr common.Address, hash common.Hash) common.Hash {
-	obj := s.getDeletedStateObject(addr)
-	return obj.OriginState(s.db, hash)
+	obj := s.getOriginStateObject(addr)
+	return obj.OriginState(s.db, s, hash)
 }
 
 func (s *ChuKoNuStateDB) GetOriginCode(addr common.Address) []byte {
-	obj := s.getDeletedStateObject(addr)
+	obj := s.getOriginStateObject(addr)
 	return obj.OriginCode(s.db)
 }
 
 func (s *ChuKoNuStateDB) GetOriginCodeSize(addr common.Address) int {
-	obj := s.getDeletedStateObject(addr)
+	obj := s.getOriginStateObject(addr)
 	code := obj.OriginCode(s.db)
 	if code != nil {
 		return len(code)
@@ -1232,7 +1307,7 @@ func (s *ChuKoNuStateDB) GetOriginCodeSize(addr common.Address) int {
 }
 
 func (s *ChuKoNuStateDB) GetOriginStateAccount(addr common.Address) *types.StateAccount {
-	obj := s.getDeletedStateObject(addr)
+	obj := s.getOriginStateObject(addr)
 	if obj.originData == nil {
 		return &types.StateAccount{}
 	}
@@ -1240,7 +1315,7 @@ func (s *ChuKoNuStateDB) GetOriginStateAccount(addr common.Address) *types.State
 }
 
 func (s *ChuKoNuStateDB) CreateAccountObject(addr common.Address) *ChuKoNuStateObject {
-	if obj := s.getDeletedStateObject(addr); obj != nil { // 考虑每个区块构建一个statedb, 无需判断obj.deleted
+	if obj := s.getOriginStateObject(addr); obj != nil { // 考虑每个区块构建一个statedb, 无需判断obj.deleted
 		accountObj := obj.deepCopy(s)
 
 		// 修改最新状态与初始状态一致
@@ -1269,17 +1344,21 @@ func (s *ChuKoNuStateDB) CreateAccountObject(addr common.Address) *ChuKoNuStateO
 	return newChuKoNuObject(s, addr, types.StateAccount{}, true)
 }
 
-func (s *ChuKoNuStateDB) UpdateByAccountObject(accObj *ChuKoNuStateObject) { //事务结束之后
-	// 更新statedb
-	var obj *ChuKoNuStateObject = nil
-	if obj = s.getDeletedStateObject(accObj.address); obj != nil && !obj.deleted {
-	} else {
+// UpdateByAccountObject 事务结束之后, 更新statedb
+func (s *ChuKoNuStateDB) UpdateByAccountObject(accObj *ChuKoNuStateObject) {
+	var obj *ChuKoNuStateObject = s.getOriginStateObject(accObj.address)
+
+	if obj == nil || obj.deleted {
 		obj = newChuKoNuObject(s, accObj.address, types.StateAccount{}, true)
+		s.objectMutex.Lock()
 		s.setStateObject(obj)
+		s.objectMutex.Unlock()
 	}
 	if accObj.dirty {
+		s.stateObjectsDirtyMutex.Lock()
 		s.stateObjectsDirty[obj.address] = struct{}{}
 		s.stateObjectsPending[obj.address] = struct{}{}
+		s.stateObjectsDirtyMutex.Unlock()
 
 		obj.data.Nonce = accObj.data.Nonce
 		obj.data.Balance = new(big.Int).Set(accObj.data.Balance)
@@ -1287,8 +1366,10 @@ func (s *ChuKoNuStateDB) UpdateByAccountObject(accObj *ChuKoNuStateObject) { //�
 		obj.deleted = accObj.deleted
 	}
 	if obj.deleted {
+		s.stateObjectsDirtyMutex.Lock()
 		s.stateObjectsDestruct[obj.address] = struct{}{}
 		s.stateObjectsPending[obj.address] = struct{}{}
+		s.stateObjectsDirtyMutex.Unlock()
 	}
 	for key, val := range accObj.dirtyStorage {
 		obj.dirtyStorage[key] = val

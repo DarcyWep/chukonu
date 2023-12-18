@@ -19,7 +19,7 @@ type ChuKoNuTxStateDB struct {
 	stateObjectsDirty    map[common.Address]struct{} // State objects modified in the current execution
 	stateObjectsDestruct map[common.Address]struct{} // State objects destructed in the block
 
-	tokens map[common.Address]*StateTokenToStateDB
+	tokens map[common.Address]*StateTokenToAccountState
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -56,20 +56,19 @@ type ChuKoNuTxStateDB struct {
 }
 
 // NewChuKoNuTxStateDB creates a new state from a given trie.
-func NewChuKoNuTxStateDB(statedb *ChuKoNuStateDB) (*ChuKoNuTxStateDB, error) {
-	sdb := &ChuKoNuTxStateDB{
+func NewChuKoNuTxStateDB(statedb *ChuKoNuStateDB) *ChuKoNuTxStateDB {
+	return &ChuKoNuTxStateDB{
 		statedb:              statedb,
 		stateObjects:         make(map[common.Address]*ChuKoNuTxStateObject),
 		stateObjectsDirty:    make(map[common.Address]struct{}),
 		stateObjectsDestruct: make(map[common.Address]struct{}),
-		tokens:               make(map[common.Address]*StateTokenToStateDB),
+		tokens:               make(map[common.Address]*StateTokenToAccountState),
 		logs:                 make(map[common.Hash][]*types.Log),
 		preimages:            make(map[common.Hash][]byte),
 		journal:              newChuKoNuJournal(),
 		accessList:           newAccessList(),
 		transientStorage:     newTransientStorage(),
 	}
-	return sdb, nil
 }
 
 // setError remembers the first non-nil error it is called with.
@@ -454,7 +453,7 @@ func (s *ChuKoNuTxStateDB) Copy() *ChuKoNuTxStateDB {
 		stateObjects:         make(map[common.Address]*ChuKoNuTxStateObject, len(s.journal.dirties)),
 		stateObjectsDirty:    make(map[common.Address]struct{}, len(s.journal.dirties)),
 		stateObjectsDestruct: make(map[common.Address]struct{}, len(s.stateObjectsDestruct)),
-		tokens:               make(map[common.Address]*StateTokenToStateDB, len(s.tokens)),
+		tokens:               make(map[common.Address]*StateTokenToAccountState, len(s.tokens)),
 		refund:               s.refund,
 		logs:                 make(map[common.Hash][]*types.Log, len(s.logs)),
 		logSize:              s.logSize,
@@ -692,7 +691,7 @@ func (s *ChuKoNuTxStateDB) GetOriginCodeSize(addr common.Address) int {
 	return 0
 }
 
-func (s *ChuKoNuTxStateDB) GenerateStateTokenToStateDB() {
+func (s *ChuKoNuTxStateDB) GenerateStateTokenToAccountState() {
 	for addr := range s.journal.dirties {
 		obj, exist := s.stateObjects[addr]
 		if !exist {
@@ -720,10 +719,9 @@ func (s *ChuKoNuTxStateDB) GenerateStateTokenToStateDB() {
 		}
 
 		s.tokens[addr] = NewStateTokenToAccountState(addr, data, obj.dirtyStorage, code, obj.suicided)
-		s.stateObjectsDirty[addr] = struct{}{}
 	}
 }
 
-func (s *ChuKoNuTxStateDB) Tokens() map[common.Address]*StateTokenToStateDB {
-	return s.tokens
+func (s *ChuKoNuTxStateDB) Token(addr common.Address) *StateTokenToAccountState {
+	return s.tokens[addr]
 }
