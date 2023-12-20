@@ -2,6 +2,7 @@ package main
 
 import (
 	"chukonu/config"
+	"chukonu/conflict_detection"
 	"chukonu/core"
 	"chukonu/core/state"
 	"chukonu/core/types"
@@ -138,5 +139,7 @@ func main() {
 	//compare()
 	//compareRW()
 	//replay()
-	testChuKoNuFast()
+	//testChuKoNuFast()
+	//observation_server.Observation()
+	conflict_detection.DetectionOverhead()
 }

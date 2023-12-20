@@ -28,7 +28,7 @@ func NewChuKoNuProcessor(config *params.ChainConfig, chainDb ethdb.Database) *Ch
 }
 
 func (p *ChuKoNuProcessor) SerialSimulation(block *types.Block, statedb *state.ChuKoNuStateDB, cfg vm.Config) (*common.Hash, *[]*types.AccessAddressMap, types.Receipts, []*types.Log, uint64, error) {
-	startTime := time.Now()
+	//startTime := time.Now()
 	var (
 		receipts    types.Receipts
 		usedGas     = new(uint64)
@@ -75,7 +75,7 @@ func (p *ChuKoNuProcessor) SerialSimulation(block *types.Block, statedb *state.C
 
 	root := statedb.IntermediateRoot(p.config.IsEIP158(header.Number))
 
-	fmt.Println(root, "ChuKoNuSerial", float64(block.Transactions().Len())/time.Since(startTime).Seconds())
+	//fmt.Println(root, "ChuKoNuSerial", float64(block.Transactions().Len())/time.Since(startTime).Seconds())
 	return &root, &txsAccessAddress, receipts, allLogs, *usedGas, nil
 }
 

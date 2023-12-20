@@ -259,7 +259,9 @@ func (s *StmTransaction) HasSuicided(addr common.Address) bool {
 
 // AddBalance adds amount to the account associated with addr.
 func (s *StmTransaction) AddBalance(addr common.Address, amount *big.Int) {
-	addAccessAddr(s.accessAddress, addr, false, false)
+	if amount.Cmp(common.Big0) != 0 {
+		addAccessAddr(s.accessAddress, addr, false, false)
+	}
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.AddBalance(amount)
@@ -268,7 +270,9 @@ func (s *StmTransaction) AddBalance(addr common.Address, amount *big.Int) {
 
 // SubBalance subtracts amount from the account associated with addr.
 func (s *StmTransaction) SubBalance(addr common.Address, amount *big.Int) {
-	addAccessAddr(s.accessAddress, addr, false, false)
+	if amount.Cmp(common.Big0) != 0 {
+		addAccessAddr(s.accessAddress, addr, false, false)
+	}
 	stmTxStateObject := s.GetOrNewStateObject(addr)
 	if stmTxStateObject != nil {
 		stmTxStateObject.SubBalance(amount)
