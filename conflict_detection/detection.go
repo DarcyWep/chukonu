@@ -52,11 +52,11 @@ func DetectionOverhead() {
 
 	chuKuNoProcessor := core.NewChuKoNuProcessor(config.MainnetChainConfig, db)
 	var (
-		txsLen                                           = 0
-		txs                                              = make(types.Transactions, 0)
-		accessAddrNormal       []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
-		count                                            = 0
-		all1, all2, all3, all4 time.Duration             = 0, 0, 0, 0
+		txsLen                                                 = 0
+		txs                                                    = make(types.Transactions, 0)
+		accessAddrNormal             []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
+		count                                                  = 0
+		all1, all2, all3, all4, all5 time.Duration             = 0, 0, 0, 0, 0
 	)
 
 	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020002), big.NewInt(1)
@@ -84,10 +84,13 @@ func DetectionOverhead() {
 
 			t4 := classic.ClassicDetectionOverhead(txs)
 
+			t5 := coarseDetectionOverhead(txs, compareLen)
+
 			all1 += t1
 			all2 += t2
 			all3 += t3
 			all4 += t4
+			all5 += t5
 			root, err := chuKoNuStateDB.Commit(true)
 			if err != nil {
 				fmt.Println("state db commit error", err)
@@ -99,12 +102,46 @@ func DetectionOverhead() {
 			accessAddrNormal = accessAddrNormal[:0]
 			count += 1
 			if count == 10 {
-				fmt.Println(all1/10, all2/10, all3/10)
+				fmt.Println("DMVCC (Fine-grained) Detection Overhead:", all1/10)
+				fmt.Println("ChuKoNu (two-tier) Detection Overhead:", all2/10)
+				fmt.Println("Nezha Detection Overhead:", all3/10)
+				fmt.Println("Classic Dependency Graph Detection Overhead:", all4/10)
+				fmt.Println("Coarse-grained Detection Overhead:", all5/10)
 				break
 			}
 		}
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
 	}
+}
+
+func coarseDetectionOverhead(txs types.Transactions, testSpan int) time.Duration {
+	start := time.Now()
+	needAddress := make([]int, testSpan)
+	getAddress := make([]int, testSpan)
+	accessSequence := make(map[common.Address][]*transaction.Transaction)
+	accessToken := make(map[common.Address]bool)
+	for i, tx := range txs {
+		needAddress[i] = len(*tx.AccessPre)
+		for addr, accessAddress := range *tx.AccessPre {
+			if _, ok := accessSequence[addr]; !ok {
+				accessSequence[addr] = make([]*transaction.Transaction, 0)
+				accessToken[addr] = false
+			}
+			if !accessToken[addr] {
+				getAddress[i] += 1
+				if accessAddress.CoarseWrite {
+					accessToken[addr] = true
+				}
+			}
+		}
+	}
+	p := 0
+	for i, num := range needAddress {
+		if num == getAddress[i] {
+			p += 1
+		}
+	}
+	return time.Since(start)
 }
 
 func dmvccDetectionOverhead(txs types.Transactions, testSpan int) time.Duration {
