@@ -1,20 +1,16 @@
 package conflict_detection
 
 import (
-	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"chukonu/config"
-	"chukonu/conflict_detection/classic"
 	"chukonu/core"
 	corestate "chukonu/core/state"
 	"chukonu/core/types"
 	"chukonu/core/vm"
 	"chukonu/database"
-	"chukonu/setting"
 	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
-	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -23,10 +19,14 @@ import (
 
 const (
 	testTxsLen = 10000
-	compareLen = 10000
+	compareLen = 5000
 )
 
+var slotConflictDetectionNum = 8
+
 func DetectionOverhead() {
+	runtime.GOMAXPROCS(slotConflictDetectionNum)
+	time.Sleep(100 * time.Millisecond)
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
 		fmt.Println("open leveldb", err)
@@ -52,11 +52,12 @@ func DetectionOverhead() {
 
 	chuKuNoProcessor := core.NewChuKoNuProcessor(config.MainnetChainConfig, db)
 	var (
-		txsLen                                                 = 0
-		txs                                                    = make(types.Transactions, 0)
-		accessAddrNormal             []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
-		count                                                  = 0
-		all1, all2, all3, all4, all5 time.Duration             = 0, 0, 0, 0, 0
+		txsLen                                     = 0
+		txs                                        = make(types.Transactions, 0)
+		accessAddrNormal []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
+		count                                      = 0
+		//all1, all2, all3, all4, all5 time.Duration             = 0, 0, 0, 0, 0
+		all2 time.Duration = 0
 	)
 
 	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020002), big.NewInt(1)
@@ -67,7 +68,7 @@ func DetectionOverhead() {
 			return
 		}
 
-		_, normal, _, _, _, _ := chuKuNoProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
+		_, normal, _, _, _ := chuKuNoProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
 		accessAddrNormal = append(accessAddrNormal, *normal...)
 
 		txs = append(txs, block.Transactions()...)
@@ -75,22 +76,20 @@ func DetectionOverhead() {
 		txsLen += block.Transactions().Len()
 		if txsLen >= testTxsLen { // 对比 testTxsLen 个交易
 			txs = txs[:compareLen]
-			t1 := dmvccDetectionOverhead(txs, compareLen)
+			//t1 := dmvccDetectionOverhead(txs, compareLen)
 			t2 := chukonuDetectionOverhead(txs)
 
-			os.RemoveAll(setting.NezhaDB)
-			statedb, _ := state.NewState(setting.NezhaDB, nil)
-			t3 := nezhaDetection(txs, statedb)
+			//os.RemoveAll(setting.NezhaDB)
+			//statedb, _ := state.NewState(setting.NezhaDB, nil)
+			//t3 := nezhaDetection(txs, statedb)
+			//t4 := classic.ClassicDetectionOverhead(txs)
+			//t5 := coarseDetectionOverhead(txs, compareLen)
 
-			t4 := classic.ClassicDetectionOverhead(txs)
-
-			t5 := coarseDetectionOverhead(txs, compareLen)
-
-			all1 += t1
+			//all1 += t1
 			all2 += t2
-			all3 += t3
-			all4 += t4
-			all5 += t5
+			//all3 += t3
+			//all4 += t4
+			//all5 += t5
 			root, err := chuKoNuStateDB.Commit(true)
 			if err != nil {
 				fmt.Println("state db commit error", err)
@@ -102,11 +101,11 @@ func DetectionOverhead() {
 			accessAddrNormal = accessAddrNormal[:0]
 			count += 1
 			if count == 10 {
-				fmt.Println("DMVCC (Fine-grained) Detection Overhead:", all1/10)
-				fmt.Println("ChuKoNu (two-tier) Detection Overhead:", all2/10)
-				fmt.Println("Nezha Detection Overhead:", all3/10)
-				fmt.Println("Classic Dependency Graph Detection Overhead:", all4/10)
-				fmt.Println("Coarse-grained Detection Overhead:", all5/10)
+				//fmt.Println("DMVCC (Fine-grained) Detection Overhead:", (all1 / 10).Microseconds())
+				fmt.Println("ChuKoNu (two-tier) Detection Overhead:", (all2 / 10).Microseconds())
+				//fmt.Println("Nezha Detection Overhead:", (all3 / 10).Microseconds())
+				//fmt.Println("Classic Dependency Graph Detection Overhead:", (all4 / 10).Microseconds())
+				//fmt.Println("Coarse-grained Detection Overhead:", (all5 / 10).Microseconds())
 				break
 			}
 		}
@@ -214,14 +213,16 @@ func (a *account) appendSequence(tx *types.Transaction) {
 func chukonuDetectionOverhead(txs types.Transactions) time.Duration {
 	start := time.Now()
 	accessSequence := make(map[common.Address]*account)
+	isaddressHaveSlot := make(map[common.Address]struct{})
 
 	for _, tx := range txs {
 		for addr, accessAddress := range *tx.AccessPre {
-			if accessAddress.CoarseRead || accessAddress.CoarseWrite { // 读/写了账户状态
-				if _, ok := accessSequence[addr]; !ok {
-					accessSequence[addr] = newAccount(addr)
-				}
-				accessSequence[addr].appendSequence(tx)
+			if _, ok := accessSequence[addr]; !ok {
+				accessSequence[addr] = newAccount(addr)
+			}
+			accessSequence[addr].appendSequence(tx)
+			if len(*accessAddress.Slots) != 0 {
+				isaddressHaveSlot[addr] = struct{}{}
 			}
 		}
 	}
@@ -231,7 +232,8 @@ func chukonuDetectionOverhead(txs types.Transactions) time.Duration {
 		num     int
 	}
 	var listTxsByAddr []txsByAddr
-	for key, acc := range accessSequence {
+	for key, _ := range isaddressHaveSlot {
+		acc := accessSequence[key]
 		listTxsByAddr = append(listTxsByAddr, txsByAddr{key, acc, len(acc.sequence)})
 	}
 	sort.Slice(listTxsByAddr, func(i, j int) bool {
@@ -239,10 +241,10 @@ func chukonuDetectionOverhead(txs types.Transactions) time.Duration {
 	})
 
 	var (
-		slotConflictDetectionWg  sync.WaitGroup
-		slotConflictDetectionNum = runtime.NumCPU()
-		accountInfoCh            = make(chan *account, 10000)
+		slotConflictDetectionWg sync.WaitGroup
+		accountInfoCh           = make(chan *account, 10000)
 	)
+
 	slotConflictDetectionWg.Add(slotConflictDetectionNum)
 	for i := 0; i < slotConflictDetectionNum; i++ {
 		go slotConflictDetection(accountInfoCh, &slotConflictDetectionWg)

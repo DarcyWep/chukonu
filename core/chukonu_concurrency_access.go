@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const chanSize = 10240
+const chanSize = 20240
 
 type distributeMap map[common.Address]types.Transactions
 type distributeChan chan *depQueue

@@ -54,7 +54,6 @@ func (s *Sequence) append(tx *chuKoNuTx) {
 func (s *Sequence) setLen() {
 	s.sequenceLen = len(s.sequence)
 }
-
 func (s *Sequence) String() string {
 	str := ""
 	for _, tx := range s.sequence {
@@ -134,14 +133,14 @@ type ChuKoNuFastProcessor struct {
 }
 
 func NewChuKoNuFastProcessor(config *params.ChainConfig, chainDb ethdb.Database, block *types.Block, statedb *state.ChuKoNuStateDB) *ChuKoNuFastProcessor {
-	schedulerNumCPU := 6
+	schedulerNumCPU := 2
 	cp := &ChuKoNuFastProcessor{
 		config:                   config,
 		chainDb:                  chainDb,
 		cknTxs:                   make(chuKoNuTxs, block.Transactions().Len()),
-		tokenManagerNumCPU:       10,
+		tokenManagerNumCPU:       3,
 		schedulerNumCPU:          schedulerNumCPU,
-		executorNumCPU:           16,
+		executorNumCPU:           5,
 		tokenManagerCh:           make(tokenChan, chanSize),
 		schedulerCh:              make([]tokenChan, schedulerNumCPU), // 用多个chan实现
 		executorCh:               make(executorChan, chanSize),
@@ -157,8 +156,6 @@ func NewChuKoNuFastProcessor(config *params.ChainConfig, chainDb ethdb.Database,
 }
 
 func (p *ChuKoNuFastProcessor) ChuKoNuFast(block *types.Block, statedb *state.ChuKoNuStateDB, cfg vm.Config) float64 {
-	addresses, accountLen := p.accountConflictDetection(statedb) // 依赖队列的长度
-
 	startTime := time.Now()
 	p.tokenManagerWg.Add(p.tokenManagerNumCPU)
 	for i := 0; i < p.tokenManagerNumCPU; i++ {
@@ -176,9 +173,8 @@ func (p *ChuKoNuFastProcessor) ChuKoNuFast(block *types.Block, statedb *state.Ch
 		go p.executor(block, cfg)
 	}
 
-	for _, accInfo := range addresses {
-		p.tokenManagerCh <- newToken(accInfo.address, accInfo, nil, nil, nil)
-	}
+	accountLen := p.accountConflictDetection(statedb) // 依赖队列的长度
+	//fmt.Println(accountLen)
 
 	p.closeWg.Add(1)
 	go p.close(accountLen)
@@ -202,9 +198,9 @@ func (p *ChuKoNuFastProcessor) ChuKoNuFast(block *types.Block, statedb *state.Ch
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	ckuFastAccumulateRewards(p.config, statedb, block.Header(), block.Uncles())
 
-	statedb.IntermediateRoot(p.config.IsEIP158(block.Number()))
+	root := statedb.IntermediateRoot(p.config.IsEIP158(block.Number()))
 
-	return float64(block.Transactions().Len()) / time.Since(startTime).Seconds()
+	fmt.Println(root, "ChuKoNu Fast", float64(block.Transactions().Len())/time.Since(startTime).Seconds())
 }
 
 func (p *ChuKoNuFastProcessor) accountConflictDetection(statedb *state.ChuKoNuStateDB) (map[common.Address]*accountInfo, int) {
@@ -329,140 +325,135 @@ func (p *ChuKoNuFastProcessor) slotConflictDetection(accountInfoCh chan *account
 		for slot, _ := range slots {
 			accInfo.accountState.SetOriginState(slot, statedb.GetOriginState(accInfo.address, slot))
 		}
-	}
-}
-
-func (p *ChuKoNuFastProcessor) recycleToken(tok *token, statedb *state.ChuKoNuStateDB) {
-	grantedTxIndexes := make(map[int]struct{}, 0) // 用于统计授予了哪些事务相关权限, 方便后续的令牌发放
-	tok.account.finishedTxNum += 1                // 完成的事务 + 1, 用于停止线程
-
-	if tok.stateTokenToAccountState != nil {
-		tok.stateTokenToAccountState.UpdateAccountState(tok.account.accountState) // 更新账户的状态
-	}
-
-	// 查看是否已经执行完所有的事务
-	if tok.account.finishedTxNum == tok.account.accountSequence.sequenceLen { // 所有的事务都完成了执行, 结束后续的权限授予
-		statedb.UpdateByAccountObject(tok.account.accountState) // 将临时账户状态更新至世界状态
-		ok := tok.account.atomicCounter.CompareAndSwap(true, false)
+		ok := accInfo.atomicCounter.CompareAndSwap(false, true) // 首次权限开始授予
 		if !ok {
-			fmt.Printf("finishing rights granted failed")
+			fmt.Printf("first rights granted failed")
 		}
-		//fmt.Println(tok.tx.tx.Index)
-		p.closeCh <- true
-		return // 结束当前账户的所有交易
-	}
-
-	// 处理事务结束后账户序列的权限
-	if tok.rwSet.IsWrite { // 账户是写操作，为账户序列继续授予权限
-		accInfo := tok.account
-		accInfo.accountSequence.isWrite = false // 允许继续授予权限
-		for ; accInfo.accountSequence.pendingExecutionIndex < accInfo.accountSequence.sequenceLen; accInfo.accountSequence.pendingExecutionIndex++ {
-			tx := accInfo.accountSequence.sequence[accInfo.accountSequence.pendingExecutionIndex].tx
-			addressRW := (*tx.AccessPre)[accInfo.address]
-
-			accInfo.checkIntegrity[tx.Index] += 1
-			grantedTxIndexes[tx.Index] = struct{}{} // 用于授予权限
-
-			if addressRW.IsWrite { // 如果是写, 则不能再继续授予权限了
-				accInfo.accountSequence.isWrite = true
-				accInfo.accountSequence.pendingExecutionIndex += 1 // 退出前要把下标 + 1, 否则之后就无法发放令牌了
-				break                                              // 接下来该队列不可能再授予权限了, 直接退出
-			}
-		}
-	}
-
-	//if tok.account.address == common.HexToAddress("0xA68Dd8cB83097765263AdAD881Af6eeD479c4a33") && tok.tx.tx.Index == 2 {
-	//	fmt.Println(tok.rwSet.Slots)
-	//}
-	// 处理事务结束后每个slot序列的权限
-	//fmt.Println("len(*tok.rwSet.Slots):", len(*tok.rwSet.Slots))
-	for slot, tokenSlotRW := range *tok.rwSet.Slots {
-		if tokenSlotRW.IsWrite {
-			slotSequence := tok.account.slotSequence[slot]
-			slotSequence.isWrite = false // 允许继续授予权限
-
-			for ; slotSequence.pendingExecutionIndex < slotSequence.sequenceLen; slotSequence.pendingExecutionIndex++ {
-				tx := slotSequence.sequence[slotSequence.pendingExecutionIndex].tx
-				addressRW := (*tx.AccessPre)[tok.address]
-				slotRW := (*addressRW.Slots)[slot]
-
-				tok.account.checkIntegrity[tx.Index] += 1
-				grantedTxIndexes[tx.Index] = struct{}{} // 用于授予权限
-
-				if slotRW.IsWrite { // 如果是写, 则不能再继续授予权限了
-					slotSequence.isWrite = true
-					slotSequence.pendingExecutionIndex += 1 // 退出前要把下标 + 1, 否则之后就无法发放令牌了
-					break                                   // 接下来该队列不可能再授予权限了, 直接退出
-				}
-			}
-		}
-	}
-
-	//if tok.account.address == common.HexToAddress("0xA68Dd8cB83097765263AdAD881Af6eeD479c4a33") {
-	//	fmt.Println(grantedTxIndexes, tok.account.checkIntegrity[4], tok.account.needSlotToken[4])
-	//}
-	//fmt.Println(len(grantedTxIndexes))
-	if len(grantedTxIndexes) > 0 { // 获取完了所有状态的事务，可以分发权限
-		tok.account.readyTxs = tok.account.readyTxs[:0]
-		for txIndex, _ := range grantedTxIndexes {
-			if tok.account.checkIntegrity[txIndex] == tok.account.needSlotToken[txIndex] {
-				tok.account.readyTxs = append(tok.account.readyTxs, txIndex)
-			}
-		}
-		sort.Ints(tok.account.readyTxs) // 需要从 tx 下标小的开始授予权限, 防止写事务先授予，然后读事务没授予完就已经返回更改了状态
-		for _, txIndex := range tok.account.readyTxs {
-			rwSet := (*p.cknTxs[txIndex].tx.AccessPre)[tok.address]
+		for _, txIndex := range accInfo.readyTxs {
+			rwSet := (*p.cknTxs[txIndex].tx.AccessPre)[accInfo.address]
 			slots := make([]common.Hash, len(*rwSet.Slots))
 			for key, _ := range *rwSet.Slots {
 				slots = append(slots, key)
 			}
-			p.schedulerCh[txIndex%p.schedulerNumCPU] <- newToken(tok.account.address, tok.account, p.cknTxs[txIndex],
-				state.NewStateTokenToTxDB(tok.address, tok.account.accountState, slots, tok.account.accountState.Deleted()),
+			p.schedulerCh[txIndex%p.schedulerNumCPU] <- newToken(accInfo.address, accInfo, p.cknTxs[txIndex],
+				state.NewStateTokenToTxDB(accInfo.address, accInfo.accountState, slots, accInfo.accountState.Deleted()),
 				rwSet)
 		}
-	}
-
-	ok := tok.account.atomicCounter.CompareAndSwap(true, false)
-
-	if !ok {
-		fmt.Printf("finishing rights granted failed")
+		ok = accInfo.atomicCounter.CompareAndSwap(true, false) // 首次权限开始授予
+		if !ok {
+			fmt.Printf("firstly finishing rights granted failed")
+		}
 	}
 }
 
 func (p *ChuKoNuFastProcessor) tokenManager(statedb *state.ChuKoNuStateDB) {
 	defer p.tokenManagerWg.Done()
-	for tok := range p.tokenManagerCh {
-		ok := tok.account.atomicCounter.CompareAndSwap(false, true)
+	for token := range p.tokenManagerCh {
+		ok := token.account.atomicCounter.CompareAndSwap(false, true)
 		if !ok { // 有线程正在处理该地址相关的token
-			p.tokenManagerCh <- tok
-			//fmt.Println(tok.address, tok.tx.tx.Index)
+			p.tokenManagerCh <- token
+			//fmt.Println(token.address, token.tx.tx.Index)
 			continue
 		}
+		grantedTxIndexes := make(map[int]struct{}, 0) // 用于统计授予了哪些事务相关权限, 方便后续的令牌发放
+		token.account.finishedTxNum += 1              // 完成的事务 + 1, 用于停止线程
 
-		if tok.tx != nil {
-			p.recycleToken(tok, statedb)
-		} else {
-			for _, txIndex := range tok.account.readyTxs {
-				rwSet := (*p.cknTxs[txIndex].tx.AccessPre)[tok.account.address]
+		if token.stateTokenToAccountState != nil {
+			token.stateTokenToAccountState.UpdateAccountState(token.account.accountState) // 更新账户的状态
+		}
+
+		// 查看是否已经执行完所有的事务
+		if token.account.finishedTxNum == token.account.accountSequence.sequenceLen { // 所有的事务都完成了执行, 结束后续的权限授予
+			statedb.UpdateByAccountObject(token.account.accountState) // 将临时账户状态更新至世界状态
+			ok = token.account.atomicCounter.CompareAndSwap(true, false)
+			if !ok {
+				fmt.Printf("finishing rights granted failed")
+			}
+			//fmt.Println(token.tx.tx.Index)
+			p.closeCh <- true
+			continue // 结束当前账户的所有交易
+		}
+
+		// 处理事务结束后账户序列的权限
+		if token.rwSet.IsWrite { // 账户是写操作，为账户序列继续授予权限
+			accInfo := token.account
+			accInfo.accountSequence.isWrite = false // 允许继续授予权限
+			for ; accInfo.accountSequence.pendingExecutionIndex < accInfo.accountSequence.sequenceLen; accInfo.accountSequence.pendingExecutionIndex++ {
+				tx := accInfo.accountSequence.sequence[accInfo.accountSequence.pendingExecutionIndex].tx
+				addressRW := (*tx.AccessPre)[accInfo.address]
+
+				accInfo.checkIntegrity[tx.Index] += 1
+				grantedTxIndexes[tx.Index] = struct{}{} // 用于授予权限
+
+				if addressRW.IsWrite { // 如果是写, 则不能再继续授予权限了
+					accInfo.accountSequence.isWrite = true
+					accInfo.accountSequence.pendingExecutionIndex += 1 // 退出前要把下标 + 1, 否则之后就无法发放令牌了
+					break                                              // 接下来该队列不可能再授予权限了, 直接退出
+				}
+			}
+		}
+
+		//if token.account.address == common.HexToAddress("0xA68Dd8cB83097765263AdAD881Af6eeD479c4a33") && token.tx.tx.Index == 2 {
+		//	fmt.Println(token.rwSet.Slots)
+		//}
+		// 处理事务结束后每个slot序列的权限
+		//fmt.Println("len(*token.rwSet.Slots):", len(*token.rwSet.Slots))
+		for slot, tokenSlotRW := range *token.rwSet.Slots {
+			if tokenSlotRW.IsWrite {
+				slotSequence := token.account.slotSequence[slot]
+				slotSequence.isWrite = false // 允许继续授予权限
+
+				for ; slotSequence.pendingExecutionIndex < slotSequence.sequenceLen; slotSequence.pendingExecutionIndex++ {
+					tx := slotSequence.sequence[slotSequence.pendingExecutionIndex].tx
+					addressRW := (*tx.AccessPre)[token.address]
+					slotRW := (*addressRW.Slots)[slot]
+
+					token.account.checkIntegrity[tx.Index] += 1
+					grantedTxIndexes[tx.Index] = struct{}{} // 用于授予权限
+
+					if slotRW.IsWrite { // 如果是写, 则不能再继续授予权限了
+						slotSequence.isWrite = true
+						slotSequence.pendingExecutionIndex += 1 // 退出前要把下标 + 1, 否则之后就无法发放令牌了
+						break                                   // 接下来该队列不可能再授予权限了, 直接退出
+					}
+				}
+			}
+		}
+
+		//if token.account.address == common.HexToAddress("0xA68Dd8cB83097765263AdAD881Af6eeD479c4a33") {
+		//	fmt.Println(grantedTxIndexes, token.account.checkIntegrity[4], token.account.needSlotToken[4])
+		//}
+		//fmt.Println(len(grantedTxIndexes))
+		if len(grantedTxIndexes) > 0 { // 获取完了所有状态的事务，可以分发权限
+			token.account.readyTxs = token.account.readyTxs[:0]
+			for txIndex, _ := range grantedTxIndexes {
+				if token.account.checkIntegrity[txIndex] == token.account.needSlotToken[txIndex] {
+					token.account.readyTxs = append(token.account.readyTxs, txIndex)
+				}
+			}
+			sort.Ints(token.account.readyTxs) // 需要从 tx 下标小的开始授予权限, 防止写事务先授予，然后读事务没授予完就已经返回更改了状态
+			for _, txIndex := range token.account.readyTxs {
+				rwSet := (*p.cknTxs[txIndex].tx.AccessPre)[token.address]
 				slots := make([]common.Hash, len(*rwSet.Slots))
 				for key, _ := range *rwSet.Slots {
 					slots = append(slots, key)
 				}
-				p.schedulerCh[txIndex%p.schedulerNumCPU] <- newToken(tok.account.address, tok.account, p.cknTxs[txIndex],
-					state.NewStateTokenToTxDB(tok.account.address, tok.account.accountState, slots, tok.account.accountState.Deleted()),
+				p.schedulerCh[txIndex%p.schedulerNumCPU] <- newToken(token.account.address, token.account, p.cknTxs[txIndex],
+					state.NewStateTokenToTxDB(token.address, token.account.accountState, slots, token.account.accountState.Deleted()),
 					rwSet)
-			}
-			ok = tok.account.atomicCounter.CompareAndSwap(true, false) // 首次权限开始授予
-			if !ok {
-				fmt.Printf("firstly finishing rights granted failed")
 			}
 		}
 
+		ok = token.account.atomicCounter.CompareAndSwap(true, false)
+
+		if !ok {
+			fmt.Printf("finishing rights granted failed")
+		}
 	}
 }
 
 func (p *ChuKoNuFastProcessor) scheduler(schedulerCh tokenChan, i int) {
-	defer p.schedulerWg.Done()
+	p.schedulerWg.Done()
 	txTokens := make(map[common.Hash][]*token)
 	for t := range schedulerCh {
 		var tokens []*token
@@ -486,7 +477,7 @@ func (p *ChuKoNuFastProcessor) scheduler(schedulerCh tokenChan, i int) {
 }
 
 func (p *ChuKoNuFastProcessor) executor(block *types.Block, cfg vm.Config) {
-	defer p.executorWg.Done()
+	p.executorWg.Done()
 	for tokens := range p.executorCh {
 		tx := (*tokens)[0].tx
 		var (

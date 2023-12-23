@@ -1,114 +1,27 @@
-package observation_server
+package observation
 
 import (
-	"chukonu/config"
-	"chukonu/core"
-	"chukonu/core/state"
-	"chukonu/core/types"
-	"chukonu/core/vm"
-	"chukonu/database"
-	"chukonu/observation/classic"
+	"chukonu/experiment/observation/classic"
 	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
-	"math/big"
 	"time"
 )
 
-const (
-	testTxsLen = 10000
-	compareLen = 500
-)
-
-func Observation() {
-	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
-	if err != nil {
-		fmt.Println("open leveldb", err)
-		return
-	}
-	defer db.Close()
-	var number uint64 = 14000000
-	blockStable, err := database.GetBlockByNumber(db, new(big.Int).SetUint64(number))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	var (
-		parent     *types.Header  = blockStable.Header()
-		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
-	)
-
-	chuKoNuStateDB, err := state.NewChuKoNuStateDB(parent.Root, stateCache, nil, nil)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	chuKuNoProcessor := core.NewChuKoNuProcessor(config.MainnetChainConfig, db)
-	var (
-		txsLen                                     = 0
-		txs                                        = make(types.Transactions, 0)
-		accessAddrNormal []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
-		count                                      = 0
-		all1, all2                                 = 0, 0
-	)
-
-	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020002), big.NewInt(1)
-	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
-		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
-		if err2 != nil {
-			fmt.Println(err2)
-			return
-		}
-
-		_, normal, _, _, _, _ := chuKuNoProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
-		accessAddrNormal = append(accessAddrNormal, *normal...)
-
-		txs = append(txs, block.Transactions()...)
-
-		txsLen += block.Transactions().Len()
-		if txsLen >= testTxsLen { // 对比 testTxsLen 个交易
-			p1, p2 := parallelism(&accessAddrNormal, txs)
-			all1 += p1
-			all2 += p2
-			root, err := chuKoNuStateDB.Commit(true)
-			if err != nil {
-				fmt.Println("state db commit error", err)
-				return
-			}
-			chuKoNuStateDB, _ = state.NewChuKoNuStateDB(root, stateCache, nil, nil)
-			txsLen = 0
-			txs = txs[:0]
-			accessAddrNormal = accessAddrNormal[:0]
-			count += 1
-			if count == 10 {
-				fmt.Println(all1/10, all2/10)
-				break
-			}
-		}
-		//fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
-	}
-}
-
-func parallelism(accessAddresses *[]*types.AccessAddressMap, txs types.Transactions) (int, int) {
-	for i := 0; i < compareLen; i++ {
-		txs[i].AccessSim = (*accessAddresses)[i]
-	}
-	txs = txs[:compareLen]
-	p1 := coarseParallelism(txs, compareLen)
-	p2 := fineParallelism(txs, compareLen)
+func parallelism(txs []*transaction.Transaction, testSpan int) {
+	p1 := coarseParallelism(txs, testSpan)
+	p2 := fineParallelism(txs, testSpan)
 	fmt.Println(p1, p2)
-	return p1, p2
 }
 
-func coarseParallelism(txs types.Transactions, testSpan int) int {
+func coarseParallelism(txs []*transaction.Transaction, testSpan int) int {
 	needAddress := make([]int, testSpan)
 	getAddress := make([]int, testSpan)
 	accessSequence := make(map[common.Address][]*transaction.Transaction)
 	accessToken := make(map[common.Address]bool)
 	for i, tx := range txs {
-		needAddress[i] = len(*tx.AccessSim)
-		for addr, accessAddress := range *tx.AccessSim {
+		needAddress[i] = len(*tx.AccessAddress)
+		for addr, accessAddress := range *tx.AccessAddress {
 			if _, ok := accessSequence[addr]; !ok {
 				accessSequence[addr] = make([]*transaction.Transaction, 0)
 				accessToken[addr] = false
@@ -130,13 +43,13 @@ func coarseParallelism(txs types.Transactions, testSpan int) int {
 	return p
 }
 
-func fineParallelism(txs types.Transactions, testSpan int) int {
+func fineParallelism(txs []*transaction.Transaction, testSpan int) int {
 	needAddress := make([]int, testSpan)
 	getAddress := make([]int, testSpan)
 	accessSequence := make(map[string][]*transaction.Transaction)
 	accessToken := make(map[string]bool)
 	for i, tx := range txs {
-		for addr, accessAddress := range *tx.AccessSim {
+		for addr, accessAddress := range *tx.AccessAddress {
 			if accessAddress.IsRead || accessAddress.IsWrite { // 读/写了账户状态
 				//if *tx.Hash == common.HexToHash("0xc2f8da59f37c506e4d398ca32e2c70baa0f522e76d2b6f83fa3fd20491888e67") {
 				//	fmt.Println(tx.Hash, addr, tx.Contract, accessAddress.IsRead, accessAddress.IsWrite)

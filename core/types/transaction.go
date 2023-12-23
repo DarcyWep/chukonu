@@ -74,6 +74,14 @@ func NewTx(inner TxData) *Transaction {
 	return tx
 }
 
+func NewTxForChuKoNuFastLarge(hash common.Hash, access *AccessAddressMap, index int) *Transaction {
+	tx := new(Transaction)
+	tx.AccessPre = access
+	tx.Index = index
+	tx.hash.Store(hash)
+	return tx
+}
+
 // TxData is the underlying data of a transaction.
 //
 // This is implemented by DynamicFeeTx, LegacyTx and AccessListTx.

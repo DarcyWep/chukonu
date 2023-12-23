@@ -1355,10 +1355,10 @@ func (s *ChuKoNuStateDB) UpdateByAccountObject(accObj *ChuKoNuStateObject) {
 		s.objectMutex.Unlock()
 	}
 	if accObj.dirty {
-		s.stateObjectsDirtyMutex.Lock()
-		s.stateObjectsDirty[obj.address] = struct{}{}
-		s.stateObjectsPending[obj.address] = struct{}{}
-		s.stateObjectsDirtyMutex.Unlock()
+		//s.stateObjectsDirtyMutex.Lock()
+		//s.stateObjectsDirty[obj.address] = struct{}{}
+		//s.stateObjectsPending[obj.address] = struct{}{}
+		//s.stateObjectsDirtyMutex.Unlock()
 
 		obj.data.Nonce = accObj.data.Nonce
 		obj.data.Balance = new(big.Int).Set(accObj.data.Balance)
@@ -1366,14 +1366,14 @@ func (s *ChuKoNuStateDB) UpdateByAccountObject(accObj *ChuKoNuStateObject) {
 		obj.deleted = accObj.deleted
 	}
 	if obj.deleted {
-		s.stateObjectsDirtyMutex.Lock()
-		s.stateObjectsDestruct[obj.address] = struct{}{}
-		s.stateObjectsPending[obj.address] = struct{}{}
-		s.stateObjectsDirtyMutex.Unlock()
+		//s.stateObjectsDirtyMutex.Lock()
+		//s.stateObjectsDestruct[obj.address] = struct{}{}
+		//s.stateObjectsPending[obj.address] = struct{}{}
+		//s.stateObjectsDirtyMutex.Unlock()
 	}
 	for key, val := range accObj.dirtyStorage {
 		obj.dirtyStorage[key] = val
 	}
 
-	obj.updateRoot(s.db)
+	//obj.updateRoot(s.db)
 }
