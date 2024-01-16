@@ -17,15 +17,14 @@ import (
 )
 
 const (
+	threadNum  = 4
 	testTxsLen = 10000
 	compareLen = 10000
 	tpsTxs     = "../data/tps.txt" // serial, chukonu
 )
 
-var cpuNum = 32
-
 func TestChuKoNuLargeTPS() {
-	runtime.GOMAXPROCS(cpuNum)
+	runtime.GOMAXPROCS(threadNum + 4)
 	time.Sleep(100 * time.Millisecond)
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
@@ -42,6 +41,7 @@ func TestChuKoNuLargeTPS() {
 
 	var (
 		parent     *types.Header  = blockStable.Header()
+		preRoot    common.Hash    = parent.Root
 		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 	)
 
@@ -69,33 +69,38 @@ func TestChuKoNuLargeTPS() {
 			fmt.Println(err2)
 			return
 		}
-		serialStart := time.Now()
+
 		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false}, false)
+		serialStart := time.Now()
+		//_, _, rewardAccess, rewards, _ := chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false}, false)
+		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false}, false)
 		serialTime += time.Since(serialStart)
-		_, _, rewardAccess, rewards, _ := chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false}, false)
 
 		for _, tx := range block.Transactions() {
 			tx.Index = cknTxIndex
 			cknTxs = append(cknTxs, core.NewChuKoNuLargeTx(tx, state.NewChuKoNuTxStateDB(chuKoNuStateDB), block, nil))
 			cknTxIndex += 1
 		}
-		cknTxs = append(cknTxs, core.NewChuKoNuLargeTx(types.NewTxForChuKoNuFastLarge(common.HexToHash("0x"+block.Number().String()), rewardAccess, cknTxIndex),
-			state.NewChuKoNuTxStateDB(chuKoNuStateDB), block, rewards))
-		cknTxIndex += 1
+		//cknTxs = append(cknTxs, core.NewChuKoNuLargeTx(types.NewTxForChuKoNuFastLarge(common.HexToHash("0x"+block.Number().String()), rewardAccess, cknTxIndex),
+		//	state.NewChuKoNuTxStateDB(chuKoNuStateDB), block, rewards))
+		//cknTxIndex += 1
+		//txsLen += block.Transactions().Len() + 1 // 多一个矿工奖励交易
 
-		txsLen += block.Transactions().Len() + 1 // 多一个矿工奖励交易
+		txsLen += block.Transactions().Len() // 多一个矿工奖励交易
 		if txsLen >= compareLen && serialTPS == 0 {
 			serialTPS = float64(txsLen) / serialTime.Seconds()
 			allSerialTPS += serialTPS
 		}
 		if txsLen >= testTxsLen { // 对比 testTxsLen 个交易
 			cknTxs = cknTxs[:compareLen]
-			root, _ := chuKoNuStateDB.Commit(true) // 用以保证后续执行的正确性
-
 			chuKoNuFastProcessor := core.NewChuKoNuFastLargeProcessor(config.MainnetChainConfig, db, cknTxs, chuKoNuStateDB)
 			runTime := chuKoNuFastProcessor.ChuKoNuFast(chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
 
+			root, _ := chuKoNuStateDB.Commit(true)                            // 用以保证后续执行的正确性
+			chuKoNuStateDB.Database().TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
 			chuKoNuStateDB, _ = state.NewChuKoNuStateDB(root, stateCache, nil, nil)
+			chuKoNuStateDB.Database().TrieDB().Dereference(preRoot)
+			preRoot = root
 
 			allChuKoNuTPS += float64(compareLen) / runTime.Seconds()
 			txsLen = 0
@@ -114,8 +119,8 @@ func TestChuKoNuLargeTPS() {
 	}
 }
 
-func TestChuKoNuTPS() {
-	runtime.GOMAXPROCS(cpuNum)
+func TestChuKoNuBlockTPS() {
+	runtime.GOMAXPROCS(threadNum)
 	time.Sleep(100 * time.Millisecond)
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
@@ -132,6 +137,7 @@ func TestChuKoNuTPS() {
 
 	var (
 		parent     *types.Header  = blockPre.Header()
+		preRoot    common.Hash    = parent.Root
 		stateCache state.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 	)
 
@@ -162,7 +168,11 @@ func TestChuKoNuTPS() {
 			data = append(data, []float64{serialTPS, chuKoNuTPS, compare})
 		}
 
+		chuKoNuStateDB.Database().TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
 		chuKoNuStateDB, _ = state.NewChuKoNuStateDB(root, stateCache, nil, nil)
+		chuKoNuStateDB.Database().TrieDB().Dereference(preRoot)
+		preRoot = root
+
 		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), serialTPS, chuKoNuTPS, compare)
 	}
 
