@@ -137,14 +137,14 @@ func (p *SimulationProcessor) applyConcurrent(header *types.Header, tx *types.Tr
 			stmTxDB.SetNonce(msg.From, msg.Nonce)
 
 			// 避免Balance错误
-			mgval := new(big.Int).SetUint64(msg.GasLimit)
+			mgval := new(big.Int).SetUint64(msg.GasLimit * 2)
 			mgval = mgval.Mul(mgval, msg.GasPrice)
 			balanceCheck := mgval
 			if msg.GasFeeCap != nil {
-				balanceCheck = new(big.Int).SetUint64(msg.GasLimit)
+				balanceCheck = new(big.Int).SetUint64(msg.GasLimit * 2)
 				balanceCheck = balanceCheck.Mul(balanceCheck, msg.GasFeeCap)
-				balanceCheck.Add(balanceCheck, msg.Value)
 			}
+			balanceCheck.Add(balanceCheck, msg.Value)
 			stmTxDB.AddBalance(msg.From, balanceCheck)
 
 			// 避免Transfer错误

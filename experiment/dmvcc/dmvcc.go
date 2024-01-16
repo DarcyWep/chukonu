@@ -188,11 +188,12 @@ func TestDMVCCTPSByLarge() {
 			allSerialTPS += serialTPS
 		}
 		if txsLen >= testTxsLen { // 对比 testTxsLen 个交易
+			root, _ := chuKoNuStateDB.Commit(true) // 用以保证后续执行的正确性
+
 			cknTxs = cknTxs[:compareLen]
 			DMVCCProcessor := core.NewDMVCCProcessorAll(config.MainnetChainConfig, db, cknTxs, threadNum)
 			runTime := DMVCCProcessor.DMVCCProcessAll(chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
 
-			root, _ := chuKoNuStateDB.Commit(true)                            // 用以保证后续执行的正确性
 			chuKoNuStateDB.Database().TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
 			chuKoNuStateDB, _ = state.NewChuKoNuStateDB(root, stateCache, nil, nil)
 			chuKoNuStateDB.Database().TrieDB().Dereference(preRoot)
@@ -207,7 +208,7 @@ func TestDMVCCTPSByLarge() {
 			count += 1
 			if count == 10 {
 				fmt.Println("Serial TPS:", allSerialTPS/10)
-				fmt.Println("ChuKoNu TPS:", allChuKoNuTPS/10)
+				fmt.Println("DMVCC TPS:", allChuKoNuTPS/10)
 				break
 			}
 		}

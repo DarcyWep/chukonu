@@ -281,6 +281,7 @@ func (p *DMVCCProcessorAll) tokenManager(statedb *state.ChuKoNuStateDB) {
 	defer p.tokenManagerWg.Done()
 	for tok := range p.tokenManagerCh {
 		tok.state.mutex.Lock()
+		//time.Sleep(150 * time.Nanosecond) // 模拟锁
 		if tok.tx != nil {
 			p.recycleToken(tok, statedb)
 		} else {
@@ -361,14 +362,14 @@ func (p *DMVCCProcessorAll) executor(cfg vm.Config) {
 
 		tx.txdb.SetNonce(msg.From, msg.Nonce)
 		// 避免Balance错误
-		mgval := new(big.Int).SetUint64(msg.GasLimit)
+		mgval := new(big.Int).SetUint64(msg.GasLimit * 2)
 		mgval = mgval.Mul(mgval, msg.GasPrice)
 		balanceCheck := mgval
 		if msg.GasFeeCap != nil {
-			balanceCheck = new(big.Int).SetUint64(msg.GasLimit)
+			balanceCheck = new(big.Int).SetUint64(msg.GasLimit * 2)
 			balanceCheck = balanceCheck.Mul(balanceCheck, msg.GasFeeCap)
-			balanceCheck.Add(balanceCheck, msg.Value)
 		}
+		balanceCheck.Add(balanceCheck, msg.Value)
 		tx.txdb.AddBalance(msg.From, balanceCheck)
 
 		// Create a new context to be used in the EVM environment.
