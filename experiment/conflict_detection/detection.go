@@ -22,14 +22,13 @@ import (
 )
 
 const (
-	testTxsLen = 10000
-	compareLen = 5000
+	testTxsLen               = 10000
+	compareLen               = 1000
+	slotConflictDetectionNum = 32
 )
 
-var slotConflictDetectionNum = 8
-
 func DetectionOverhead() {
-	runtime.GOMAXPROCS(slotConflictDetectionNum)
+	runtime.GOMAXPROCS(slotConflictDetectionNum + 4)
 	time.Sleep(100 * time.Millisecond)
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {
@@ -110,11 +109,11 @@ func DetectionOverhead() {
 			accessAddrNormal = accessAddrNormal[:0]
 			count += 1
 			if count == 10 {
-				fmt.Println("DMVCC (Fine-grained) Detection Overhead:", (all1 / 10).Microseconds())
+				fmt.Println("Coarse-grained Detection Overhead:", (all5 / 10).Microseconds())
 				fmt.Println("ChuKoNu (two-tier) Detection Overhead:", (all2 / 10).Microseconds())
+				fmt.Println("DMVCC (Fine-grained) Detection Overhead:", (all1 / 10).Microseconds())
 				fmt.Println("Nezha Detection Overhead:", (all3 / 10).Microseconds())
 				fmt.Println("Classic Dependency Graph Detection Overhead:", (all4 / 10).Microseconds())
-				fmt.Println("Coarse-grained Detection Overhead:", (all5 / 10).Microseconds())
 				break
 			}
 		}

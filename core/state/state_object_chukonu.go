@@ -17,6 +17,8 @@ import (
 )
 
 type ChuKoNuStateObject struct {
+	MutexForDMVCC sync.Mutex
+
 	address    common.Address
 	addrHash   common.Hash // hash of ethereum address of the account
 	data       types.StateAccount

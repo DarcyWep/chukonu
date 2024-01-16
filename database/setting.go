@@ -24,11 +24,13 @@ func DefaultRawConfig() *RawConfig {
 	} else {
 		return &RawConfig{
 			//Path:      "/experiment/ethereum/geth/chaindata",
-			Path:    "/home/fuzh/chukonu/data/ethereumdata/copchaincopy",
+			//Path:    "/home/fuzh/chukonu/data/ethereumdata/copchaincopy",
+			Path:    "/root/chukonu/ethereumdata/copchaincopy",
 			Cache:   2048,
 			Handles: 5120,
 			//Ancient:   "/experiment/ethereum/geth/chaindata/ancient",
-			Ancient:   "/home/fuzh/chukonu/data/ethereumdata/copchaincopy/ancient",
+			//Ancient:   "/home/fuzh/chukonu/data/ethereumdata/copchaincopy/ancient",
+			Ancient:   "/root/chukonu/ethereumdata/copchaincopy/ancient",
 			Namespace: "eth/db/chaindata/",
 			ReadOnly:  false,
 		}
@@ -52,7 +54,8 @@ func DefaultStateDBConfig() *StateDBConfig {
 		return &StateDBConfig{
 			Cache: 614,
 			//Journal:   "/experiment/ethereum/geth/triecache",
-			Journal:   "/home/fuzh/chukonu/data/ethereumdata/triecache",
+			//Journal:   "/home/fuzh/chukonu/data/ethereumdata/triecache",
+			Journal:   "/root/chukonu/ethereumdata/triecache",
 			Preimages: false,
 		}
 	}

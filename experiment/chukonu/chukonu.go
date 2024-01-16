@@ -59,7 +59,6 @@ func TestChuKoNuLargeTPS() {
 		allChuKoNuTPS float64       = 0
 		cknTxIndex                  = 0
 		count                       = 0
-		//all1, all2, all3, all4, all5 time.Duration = 0, 0, 0, 0, 0
 	)
 
 	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020002), big.NewInt(1)
@@ -166,6 +165,8 @@ func TestChuKoNuBlockTPS() {
 			chuKoNuTPS = chuKoNuFastProcessor.ChuKoNuFast(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
 			compare = chuKoNuTPS / serialTPS
 			data = append(data, []float64{serialTPS, chuKoNuTPS, compare})
+		} else {
+			data = append(data, []float64{0, 0, 0})
 		}
 
 		chuKoNuStateDB.Database().TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
