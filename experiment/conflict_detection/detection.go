@@ -1,16 +1,20 @@
 package conflict_detection
 
 import (
+	"chukonu/concurrency_control/conflict/nezha/core/state"
 	"chukonu/config"
 	"chukonu/core"
 	corestate "chukonu/core/state"
 	"chukonu/core/types"
 	"chukonu/core/vm"
 	"chukonu/database"
+	"chukonu/experiment/conflict_detection/classic"
+	"chukonu/setting"
 	"fmt"
 	"github.com/DarcyWep/pureData/transaction"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -42,6 +46,7 @@ func DetectionOverhead() {
 
 	var (
 		parent     *types.Header      = blockStable.Header()
+		preRoot    common.Hash        = blockStable.Root()
 		stateCache corestate.Database = database.NewStateCache(db, database.DefaultStateDBConfig())
 	)
 
@@ -52,12 +57,12 @@ func DetectionOverhead() {
 
 	chuKuNoProcessor := core.NewChuKoNuProcessor(config.MainnetChainConfig, db)
 	var (
-		txsLen                                     = 0
-		txs                                        = make(types.Transactions, 0)
-		accessAddrNormal []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
-		count                                      = 0
-		//all1, all2, all3, all4, all5 time.Duration             = 0, 0, 0, 0, 0
-		all2 time.Duration = 0
+		txsLen                                                 = 0
+		txs                                                    = make(types.Transactions, 0)
+		accessAddrNormal             []*types.AccessAddressMap = make([]*types.AccessAddressMap, 0)
+		count                                                  = 0
+		all1, all2, all3, all4, all5 time.Duration             = 0, 0, 0, 0, 0
+		//all2 time.Duration = 0
 	)
 
 	min, max, addSpan := big.NewInt(14000001), big.NewInt(14020002), big.NewInt(1)
@@ -68,7 +73,7 @@ func DetectionOverhead() {
 			return
 		}
 
-		_, normal, _, _, _ := chuKuNoProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
+		_, normal, _, _, _ := chuKuNoProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false}, false)
 		accessAddrNormal = append(accessAddrNormal, *normal...)
 
 		txs = append(txs, block.Transactions()...)
@@ -76,36 +81,40 @@ func DetectionOverhead() {
 		txsLen += block.Transactions().Len()
 		if txsLen >= testTxsLen { // 对比 testTxsLen 个交易
 			txs = txs[:compareLen]
-			//t1 := dmvccDetectionOverhead(txs, compareLen)
+			t1 := dmvccDetectionOverhead(txs, compareLen)
 			t2 := chukonuDetectionOverhead(txs)
 
-			//os.RemoveAll(setting.NezhaDB)
-			//statedb, _ := state.NewState(setting.NezhaDB, nil)
-			//t3 := nezhaDetection(txs, statedb)
-			//t4 := classic.ClassicDetectionOverhead(txs)
-			//t5 := coarseDetectionOverhead(txs, compareLen)
+			os.RemoveAll(setting.NezhaDB)
+			statedb, _ := state.NewState(setting.NezhaDB, nil)
+			t3 := nezhaDetection(txs, statedb)
+			t4 := classic.ClassicDetectionOverhead(txs)
+			t5 := coarseDetectionOverhead(txs, compareLen)
 
-			//all1 += t1
+			all1 += t1
 			all2 += t2
-			//all3 += t3
-			//all4 += t4
-			//all5 += t5
+			all3 += t3
+			all4 += t4
+			all5 += t5
 			root, err := chuKoNuStateDB.Commit(true)
 			if err != nil {
 				fmt.Println("state db commit error", err)
 				return
 			}
+			chuKoNuStateDB.Database().TrieDB().Reference(root, common.Hash{}) // metadata reference to keep trie alive
 			chuKoNuStateDB, _ = corestate.NewChuKoNuStateDB(root, stateCache, nil, nil)
+			chuKoNuStateDB.Database().TrieDB().Dereference(preRoot)
+			preRoot = root
+
 			txsLen = 0
 			txs = txs[:0]
 			accessAddrNormal = accessAddrNormal[:0]
 			count += 1
 			if count == 10 {
-				//fmt.Println("DMVCC (Fine-grained) Detection Overhead:", (all1 / 10).Microseconds())
+				fmt.Println("DMVCC (Fine-grained) Detection Overhead:", (all1 / 10).Microseconds())
 				fmt.Println("ChuKoNu (two-tier) Detection Overhead:", (all2 / 10).Microseconds())
-				//fmt.Println("Nezha Detection Overhead:", (all3 / 10).Microseconds())
-				//fmt.Println("Classic Dependency Graph Detection Overhead:", (all4 / 10).Microseconds())
-				//fmt.Println("Coarse-grained Detection Overhead:", (all5 / 10).Microseconds())
+				fmt.Println("Nezha Detection Overhead:", (all3 / 10).Microseconds())
+				fmt.Println("Classic Dependency Graph Detection Overhead:", (all4 / 10).Microseconds())
+				fmt.Println("Coarse-grained Detection Overhead:", (all5 / 10).Microseconds())
 				break
 			}
 		}

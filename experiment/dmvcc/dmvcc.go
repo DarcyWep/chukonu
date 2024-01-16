@@ -59,7 +59,7 @@ func TestDMVCCTPS() {
 			return
 		}
 
-		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false})
+		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false}, false)
 		serialTPS, _ := chuKoNuProcessor.SerialProcessTPS(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
 		root, _ := chuKoNuStateDB.Commit(true)
 		var chuKoNuTPS, compare float64 = 0, 0

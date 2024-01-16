@@ -67,6 +67,7 @@ type accountInfo struct {
 	address         common.Address // 传输的是哪个地址的令牌
 	accountState    *state.ChuKoNuStateObject
 	atomicCounter   atomic.Bool
+	mutex           sync.Mutex
 	accountSequence *Sequence
 	slotSequence    map[common.Hash]*Sequence
 
@@ -134,14 +135,14 @@ type ChuKoNuFastProcessor struct {
 }
 
 func NewChuKoNuFastProcessor(config *params.ChainConfig, chainDb ethdb.Database, block *types.Block, statedb *state.ChuKoNuStateDB) *ChuKoNuFastProcessor {
-	schedulerNumCPU := 6
+	schedulerNumCPU := 1
 	cp := &ChuKoNuFastProcessor{
 		config:                   config,
 		chainDb:                  chainDb,
 		cknTxs:                   make(chuKoNuTxs, block.Transactions().Len()),
-		tokenManagerNumCPU:       10,
+		tokenManagerNumCPU:       1,
 		schedulerNumCPU:          schedulerNumCPU,
-		executorNumCPU:           16,
+		executorNumCPU:           30,
 		tokenManagerCh:           make(tokenChan, chanSize),
 		schedulerCh:              make([]tokenChan, schedulerNumCPU), // 用多个chan实现
 		executorCh:               make(executorChan, chanSize),
@@ -269,11 +270,9 @@ func (p *ChuKoNuFastProcessor) slotConflictDetection(accountInfoCh chan *account
 				accInfo.needSlotToken[tx.Index] = len(*addressRW.Slots) + 1 // 所有的 Slot 状态 加上 Account 状态
 				for slot, _ := range *addressRW.Slots {
 					slots[slot] = struct{}{}
-
 					if _, ok := accInfo.slotSequence[slot]; !ok {
 						accInfo.slotSequence[slot] = newSequence(slot)
 					}
-
 					accInfo.slotSequence[slot].append(cknTx)
 				}
 			}
@@ -343,10 +342,12 @@ func (p *ChuKoNuFastProcessor) recycleToken(tok *token, statedb *state.ChuKoNuSt
 	// 查看是否已经执行完所有的事务
 	if tok.account.finishedTxNum == tok.account.accountSequence.sequenceLen { // 所有的事务都完成了执行, 结束后续的权限授予
 		statedb.UpdateByAccountObject(tok.account.accountState) // 将临时账户状态更新至世界状态
+		//tok.account.mutex.Lock()
 		ok := tok.account.atomicCounter.CompareAndSwap(true, false)
 		if !ok {
 			fmt.Printf("finishing rights granted failed")
 		}
+		//tok.account.mutex.Unlock()
 		//fmt.Println(tok.tx.tx.Index)
 		p.closeCh <- true
 		return // 结束当前账户的所有交易
@@ -432,10 +433,12 @@ func (p *ChuKoNuFastProcessor) recycleToken(tok *token, statedb *state.ChuKoNuSt
 func (p *ChuKoNuFastProcessor) tokenManager(statedb *state.ChuKoNuStateDB) {
 	defer p.tokenManagerWg.Done()
 	for tok := range p.tokenManagerCh {
+		//tok.account.mutex.Lock()
 		ok := tok.account.atomicCounter.CompareAndSwap(false, true)
 		if !ok { // 有线程正在处理该地址相关的token
 			p.tokenManagerCh <- tok
 			//fmt.Println(tok.address, tok.tx.tx.Index)
+			//tok.account.mutex.Unlock()
 			continue
 		}
 
@@ -457,7 +460,7 @@ func (p *ChuKoNuFastProcessor) tokenManager(statedb *state.ChuKoNuStateDB) {
 				fmt.Printf("firstly finishing rights granted failed")
 			}
 		}
-
+		//tok.account.mutex.Unlock()
 	}
 }
 

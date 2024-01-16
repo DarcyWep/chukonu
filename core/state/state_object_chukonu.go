@@ -34,6 +34,8 @@ type ChuKoNuStateObject struct {
 	pendingStorage           Storage // Storage entries that need to be flushed to disk, at the end of an entire block
 	dirtyStorage             Storage // Storage entries that have been modified in the current transaction execution
 
+	txStorage Storage // 用于记录交易初始时的Storage
+
 	dirty bool // for single account state
 
 	// Cache flags.
@@ -133,7 +135,9 @@ func (s *ChuKoNuStateObject) GetState(db Database, key common.Hash) common.Hash 
 		return value
 	}
 	// Otherwise return the entry's original value
-	return s.GetCommittedState(db, key)
+	commitValue := s.GetCommittedState(db, key)
+	s.db.setTxStorage(s, key, commitValue)
+	return commitValue
 }
 
 // GetCommittedState retrieves a value from the committed account storage trie.
@@ -485,6 +489,15 @@ func (s *ChuKoNuStateObject) Nonce() uint64 {
 	return s.data.Nonce
 }
 
+func (s *ChuKoNuStateObject) isOrigin() bool {
+	if s.data.Nonce != s.originData.Nonce || s.data.Balance.Cmp(s.originData.Balance) != 0 || !bytes.Equal(s.data.CodeHash, s.originData.CodeHash) {
+		return false
+	} else if s.deleted || s.dirtyCode || s.suicided {
+		return false
+	}
+	return true
+}
+
 func (s *ChuKoNuStateObject) OriginNonce() uint64 {
 	if s.originData == nil {
 		return 0
@@ -594,4 +607,14 @@ func (s *ChuKoNuStateObject) SetOriginState(key, value common.Hash) {
 
 func (s *ChuKoNuStateObject) Deleted() bool {
 	return s.deleted
+}
+
+func (s *ChuKoNuStateObject) copyTxObject(db *ChuKoNuStateDB) *ChuKoNuStateObject {
+	txObject := newChuKoNuObject(db, s.address, s.data, false)
+	txObject.txStorage = make(Storage)
+	txObject.suicided = s.suicided
+	txObject.dirtyCode = s.dirtyCode
+	txObject.deleted = s.deleted
+	txObject.dirty = s.dirty
+	return txObject
 }

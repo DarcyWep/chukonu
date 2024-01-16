@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
@@ -20,7 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-// StateDBChuKoNu structs within the ethereum protocol are used to store anything
+// ChuKoNuStateDB structs within the ethereum protocol are used to store anything
 // within the merkle trie. StateDBs take care of caching and storing
 // nested states. It's the general query interface to retrieve:
 // * Contracts
@@ -63,9 +64,11 @@ type ChuKoNuStateDB struct {
 	// The refund counter, also used by state transitioning.
 	refund uint64
 
-	thash         common.Hash
-	txIndex       int
-	accessAddress *types.AccessAddressMap
+	thash             common.Hash
+	txIndex           int
+	accessAddress     *types.AccessAddressMap
+	detectStateChange bool
+	txStateObjects    map[common.Address]*ChuKoNuStateObject
 
 	logs    map[common.Hash][]*types.Log
 	logSize uint
@@ -305,6 +308,11 @@ func (s *ChuKoNuStateDB) GetCodeHash(addr common.Address) common.Hash {
 // GetState retrieves a value from the given account's storage trie.
 func (s *ChuKoNuStateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	addAccessSlot(s.accessAddress, addr, hash, true, s.txIndex)
+	//if s.accessAddress != nil && s.thash == common.HexToHash("0xa9ee630fdade62b511ebfd21f222980ddc45aca09bb9a3c9128c23192b812013") &&
+	//	addr == common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2") &&
+	//	hash == common.HexToHash("0xdc51a0a44317b550a6b5ddb34687ce2bd40e4750eec27343e32b23e686739208") {
+	//	fmt.Println((*(*s.accessAddress)[addr].Slots)[hash])
+	//}
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
 		return stateObject.GetState(s.db, hash)
@@ -431,6 +439,11 @@ func (s *ChuKoNuStateDB) SetCode(addr common.Address, code []byte) {
 
 func (s *ChuKoNuStateDB) SetState(addr common.Address, key, value common.Hash) {
 	addAccessSlot(s.accessAddress, addr, key, false, s.txIndex)
+	//if s.accessAddress != nil && s.thash == common.HexToHash("0xa9ee630fdade62b511ebfd21f222980ddc45aca09bb9a3c9128c23192b812013") &&
+	//	addr == common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2") &&
+	//	key == common.HexToHash("0xdc51a0a44317b550a6b5ddb34687ce2bd40e4750eec27343e32b23e686739208") {
+	//	fmt.Println((*(*s.accessAddress)[addr].Slots)[key])
+	//}
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.SetState(s.db, key, value)
@@ -445,6 +458,7 @@ func (s *ChuKoNuStateDB) SetStorage(addr common.Address, storage map[common.Hash
 	// it in stateObjectsDestruct. The effect of doing so is that storage lookups
 	// will not hit disk, since it is assumed that the disk-data is belonging
 	// to a previous incarnation of the object.
+	//fmt.Println("SetStorage")
 	s.stateObjectsDestruct[addr] = struct{}{}
 	stateObject := s.GetOrNewStateObject(addr)
 	for k, v := range storage {
@@ -558,6 +572,7 @@ func (s *ChuKoNuStateDB) getStateObject(addr common.Address) *ChuKoNuStateObject
 func (s *ChuKoNuStateDB) getDeletedStateObject(addr common.Address) *ChuKoNuStateObject {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
+		s.setTxStateObjects(obj)
 		return obj
 	}
 	// If no live objects are available, attempt to use snapshots
@@ -601,12 +616,14 @@ func (s *ChuKoNuStateDB) getDeletedStateObject(addr common.Address) *ChuKoNuStat
 		}
 		if data == nil {
 			obj := newChuKoNuObject(s, addr, types.StateAccount{}, true)
+			s.setTxStateObjects(obj)
 			s.setStateObject(obj)
 			return nil
 		}
 	}
 	// Insert into the live set
 	obj := newChuKoNuObject(s, addr, *data, true)
+	s.setTxStateObjects(obj)
 	s.setStateObject(obj)
 	return obj
 }
@@ -642,6 +659,7 @@ func (s *ChuKoNuStateDB) createObject(addr common.Address) (newobj, prev *ChuKoN
 	} else {
 		s.journal.append(chuKoNuResetObjectChange{prev: prev, prevdestruct: prevdestruct})
 	}
+	s.setTxStateObjects(newobj)
 	s.setStateObject(newobj)
 	if prev != nil {
 		newobj.originData = prev.originData
@@ -876,6 +894,7 @@ func (s *ChuKoNuStateDB) Finalise(deleteEmptyObjects bool) {
 				delete(s.snapStorage, obj.addrHash)  // Clear out any previously updated storage data (may be recreated via a resurrect)
 			}
 		} else {
+			s.deleteAccessSlot(obj)
 			obj.finalise(true, s.txIndex) // Prefetch slots in the background
 		}
 		s.stateObjectsPending[addr] = struct{}{}
@@ -885,6 +904,9 @@ func (s *ChuKoNuStateDB) Finalise(deleteEmptyObjects bool) {
 		// will start loading tries, and when the change is eventually committed,
 		// the commit-phase will be a lot faster
 		addressesToPrefetch = append(addressesToPrefetch, common.CopyBytes(addr[:])) // Copy needed for closure
+
+		// 判断obj是否和其原始状态相同
+		s.deleteAccessAddress(obj)
 	}
 	if s.prefetcher != nil && len(addressesToPrefetch) > 0 {
 		s.prefetcher.prefetch(common.Hash{}, s.originalRoot, addressesToPrefetch)
@@ -959,13 +981,17 @@ func (s *ChuKoNuStateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 // SetTxContext sets the current transaction hash and index which are
 // used when the EVM emits new state logs. It should be invoked before
 // transaction execution.
-func (s *ChuKoNuStateDB) SetTxContext(thash common.Hash, ti int, simulation bool) {
+func (s *ChuKoNuStateDB) SetTxContext(thash common.Hash, ti int, simulation bool, detectStateChange bool) {
 	//fmt.Println(s)
 	s.thash = thash
 	s.txIndex = ti
 	s.accessAddress = nil
+	s.detectStateChange = detectStateChange
 	if simulation {
 		s.accessAddress = types.NewAccessAddressMap()
+	}
+	if detectStateChange {
+		s.txStateObjects = make(map[common.Address]*ChuKoNuStateObject)
 	}
 }
 
@@ -1376,4 +1402,81 @@ func (s *ChuKoNuStateDB) UpdateByAccountObject(accObj *ChuKoNuStateObject) {
 	}
 
 	//obj.updateRoot(s.db)
+}
+
+func (s *ChuKoNuStateDB) setTxStateObjects(obj *ChuKoNuStateObject) {
+	if s.txStateObjects == nil {
+		return
+	}
+	if _, ok := s.txStateObjects[obj.address]; !ok {
+		s.txStateObjects[obj.address] = obj.copyTxObject(s) // 第一次出现的读为初始值
+	}
+}
+
+func (s *ChuKoNuStateDB) setTxStorage(obj *ChuKoNuStateObject, key, value common.Hash) {
+	if s.txStateObjects == nil {
+		return
+	}
+	if _, ok := s.txStateObjects[obj.address]; !ok {
+		s.txStateObjects[obj.address] = obj.copyTxObject(s) // 第一次出现的读为初始值
+	}
+	s.txStateObjects[obj.address].txStorage[key] = value
+}
+
+func (s *ChuKoNuStateDB) deleteAccessAddress(obj *ChuKoNuStateObject) {
+	if s.txStateObjects == nil {
+		return
+	}
+	txObj := s.txStateObjects[obj.address]
+	if txObj == nil {
+		return
+	}
+	if txObj.data.Nonce != obj.data.Nonce || txObj.data.Balance.Cmp(obj.data.Balance) != 0 || !bytes.Equal(txObj.data.CodeHash, obj.originData.CodeHash) {
+		// 修改了
+		return
+	}
+	if txObj.deleted != obj.deleted || txObj.dirtyCode != obj.dirtyCode || txObj.suicided != obj.suicided {
+		return
+	}
+
+	accessAddr, ok := (*s.accessAddress)[obj.address]
+	if !ok {
+		fmt.Println("Address was been accessed, but not in r/w set")
+		return
+	}
+	//fmt.Println("Remove address from r/w set", s.thash, obj.address)
+	accessAddr.IsRead = true
+	accessAddr.IsWrite = false
+	//accessAddr.CoarseRead = true
+	//accessAddr.CoarseWrite = false
+
+	(*s.accessAddress)[obj.address] = accessAddr
+}
+
+// addAccessSlot 将交易所访问的存储槽进行记录
+func (s *ChuKoNuStateDB) deleteAccessSlot(obj *ChuKoNuStateObject) {
+	if s.txStateObjects == nil {
+		return
+	}
+	txObj := s.txStateObjects[obj.address]
+	if txObj == nil {
+		return
+	}
+	accessAddr, ok := (*s.accessAddress)[obj.address]
+	if !ok {
+		fmt.Println("Address was been accessed, but not in r/w set")
+		return
+	}
+	for key, value := range obj.dirtyStorage {
+		if txObj.txStorage[key] == value {
+			accessSlot, ok := (*accessAddr.Slots)[key]
+			if !ok {
+				accessSlot = types.NewAccessSlot()
+			}
+			//fmt.Println("Remove slot from r/w set", s.thash, obj.address, key)
+			accessSlot.IsRead = true
+			accessSlot.IsWrite = false
+			(*accessAddr.Slots)[key] = accessSlot
+		}
+	}
 }

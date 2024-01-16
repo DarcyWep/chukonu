@@ -70,9 +70,9 @@ func TestChuKoNuLargeTPS() {
 			return
 		}
 		serialStart := time.Now()
-		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false})
+		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false}, false)
 		serialTime += time.Since(serialStart)
-		_, _, rewardAccess, rewards, _ := chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
+		_, _, rewardAccess, rewards, _ := chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false}, false)
 
 		for _, tx := range block.Transactions() {
 			tx.Index = cknTxIndex
@@ -151,7 +151,7 @@ func TestChuKoNuTPS() {
 			return
 		}
 
-		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false})
+		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false}, false)
 		serialTPS, _ := chuKoNuProcessor.SerialProcessTPS(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
 		root, _ := chuKoNuStateDB.Commit(true)
 		var chuKoNuTPS, compare float64 = 0, 0

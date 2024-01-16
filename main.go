@@ -7,7 +7,7 @@ import (
 	"chukonu/core/types"
 	"chukonu/core/vm"
 	"chukonu/database"
-	"chukonu/experiment/dmvcc"
+	"chukonu/experiment/conflict_detection"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
@@ -116,8 +116,8 @@ func testChuKoNuFast() {
 			return
 		}
 
-		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false})
-		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false})
+		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB.Copy(), vm.Config{EnablePreimageRecording: false}, false)
+		chuKoNuProcessor.SerialSimulation(block, chuKoNuStateDB, vm.Config{EnablePreimageRecording: false}, false)
 		root, _ := chuKoNuStateDB.Commit(true)
 		if block.Transactions().Len() != 0 {
 			chuKoNuFastProcessor := core.NewChuKoNuFastProcessor(config.MainnetChainConfig, db, block, chuKoNuStateDB)
@@ -141,8 +141,8 @@ func main() {
 	//replay()
 	//testChuKoNuFast()
 	//observation_server.Observation()
-	//conflict_detection.DetectionOverhead()
+	conflict_detection.DetectionOverhead()
 	//chukonu.TestChuKoNuLargeTPS()
 	//chukonu.TestChuKoNuTPS()
-	dmvcc.TestDMVCCTPS()
+	//dmvcc.TestDMVCCTPS()
 }

@@ -1250,8 +1250,8 @@ func addAccessSlot(accessAddress *types.AccessAddressMap, addr common.Address, s
 		return
 	}
 	addAccessAddr(accessAddress, addr, readOnly, true)
-	accessAddr, _ := (*accessAddress)[addr]
-	accessSlot, ok := (*accessAddr.Slots)[slot]
+	accessSlot, ok := (*(*accessAddress)[addr].Slots)[slot]
+
 	if !ok {
 		accessSlot = types.NewAccessSlot()
 	}
@@ -1260,7 +1260,7 @@ func addAccessSlot(accessAddress *types.AccessAddressMap, addr common.Address, s
 	} else {
 		accessSlot.IsWrite = true
 	}
-	(*accessAddr.Slots)[slot] = accessSlot
+	(*(*accessAddress)[addr].Slots)[slot] = accessSlot
 	//(*accessAddress)[addr] = accessAddr
 	//if txIndex == 1 {
 	//	fmt.Println(txIndex, addr, slot, readOnly)

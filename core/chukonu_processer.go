@@ -51,7 +51,7 @@ func (p *ChuKoNuProcessor) SerialProcessTPS(block *types.Block, statedb *state.C
 			return 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		tx.Index = i
-		statedb.SetTxContext(tx.Hash(), i, true)
+		statedb.SetTxContext(tx.Hash(), i, true, true)
 		receipt, fee, err, _ := applyTransactionChuKoNu(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		allFee.Add(allFee, fee)
 		if err != nil {
@@ -64,7 +64,7 @@ func (p *ChuKoNuProcessor) SerialProcessTPS(block *types.Block, statedb *state.C
 		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
 	rewards := make(map[common.Address]*big.Int)
-	statedb.SetTxContext(common.Hash{}, -1, true)
+	statedb.SetTxContext(common.Hash{}, -1, true, true)
 	statedb.AddBalance(blockContext.Coinbase, allFee)
 	if _, ok := rewards[blockContext.Coinbase]; !ok {
 		rewards[blockContext.Coinbase] = new(big.Int).Set(allFee)
@@ -80,7 +80,7 @@ func (p *ChuKoNuProcessor) SerialProcessTPS(block *types.Block, statedb *state.C
 	return float64(block.Transactions().Len()) / time.Since(startTime).Seconds(), nil
 }
 
-func (p *ChuKoNuProcessor) SerialSimulation(block *types.Block, statedb *state.ChuKoNuStateDB, cfg vm.Config) (*common.Hash, *[]*types.AccessAddressMap, *types.AccessAddressMap, *map[common.Address]*big.Int, error) {
+func (p *ChuKoNuProcessor) SerialSimulation(block *types.Block, statedb *state.ChuKoNuStateDB, cfg vm.Config, detectStateChange bool) (*common.Hash, *[]*types.AccessAddressMap, *types.AccessAddressMap, *map[common.Address]*big.Int, error) {
 	//startTime := time.Now()
 	var (
 		receipts    types.Receipts
@@ -104,7 +104,7 @@ func (p *ChuKoNuProcessor) SerialSimulation(block *types.Block, statedb *state.C
 			return nil, nil, nil, nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		tx.Index = i
-		statedb.SetTxContext(tx.Hash(), i, true)
+		statedb.SetTxContext(tx.Hash(), i, true, detectStateChange)
 		receipt, fee, err, _ := applyTransactionChuKoNu(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		allFee.Add(allFee, fee)
 		if err != nil {
@@ -117,7 +117,7 @@ func (p *ChuKoNuProcessor) SerialSimulation(block *types.Block, statedb *state.C
 		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
 	rewards := make(map[common.Address]*big.Int)
-	statedb.SetTxContext(common.Hash{}, -1, true)
+	statedb.SetTxContext(common.Hash{}, -1, true, detectStateChange)
 	statedb.AddBalance(blockContext.Coinbase, allFee)
 	if _, ok := rewards[blockContext.Coinbase]; !ok {
 		rewards[blockContext.Coinbase] = new(big.Int).Set(allFee)
@@ -166,7 +166,7 @@ func (p *ChuKoNuProcessor) Process(block *types.Block, statedb *state.ChuKoNuSta
 			return nil, nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		tx.Index = i
-		statedb.SetTxContext(tx.Hash(), i, false)
+		statedb.SetTxContext(tx.Hash(), i, false, false)
 		receipt, fee, err, _ := applyTransactionChuKoNu(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		allFee.Add(allFee, fee)
 		if err != nil {
@@ -178,7 +178,7 @@ func (p *ChuKoNuProcessor) Process(block *types.Block, statedb *state.ChuKoNuSta
 		tx.AccessPre = statedb.AccessAddress()
 		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
-	statedb.SetTxContext(common.Hash{}, -1, false)
+	statedb.SetTxContext(common.Hash{}, -1, false, false)
 	statedb.AddBalance(blockContext.Coinbase, allFee)
 	//statedb.SetTxContext(common.Hash{}, 0) // 避免因叔父区块添加其矿工奖励而导致最后一个交易的读写集变化
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
@@ -219,7 +219,7 @@ func (p *ChuKoNuProcessor) SerialProcess(block *types.Block, statedb *state.ChuK
 			return nil, nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		tx.Index = i
-		statedb.SetTxContext(tx.Hash(), i, false)
+		statedb.SetTxContext(tx.Hash(), i, false, false)
 		receipt, fee, err, _ := applyTransactionChuKoNu(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		allFee.Add(allFee, fee)
 		if err != nil {
@@ -231,7 +231,7 @@ func (p *ChuKoNuProcessor) SerialProcess(block *types.Block, statedb *state.ChuK
 		tx.AccessPre = statedb.AccessAddress()
 		txsAccessAddress = append(txsAccessAddress, statedb.AccessAddress())
 	}
-	statedb.SetTxContext(common.Hash{}, -1, false)
+	statedb.SetTxContext(common.Hash{}, -1, false, false)
 	statedb.AddBalance(blockContext.Coinbase, allFee)
 	// Fail if Shanghai not enabled and len(withdrawals) is non-zero.
 	withdrawals := block.Withdrawals()
