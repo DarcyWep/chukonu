@@ -17,10 +17,11 @@ import (
 )
 
 const (
+	// 4, 8, 16, 32
+	tpsTxs     = "../data/dmvcc_tps_4.txt" // serial, chukonu
+	threadNum  = 4
 	testTxsLen = 10000
-	compareLen = 10000
-	threadNum  = 32
-	tpsTxs     = "../data/dmvcc_tps.txt" // serial, chukonu
+	compareLen = 5000
 )
 
 func TestDMVCCTPSByBlock() {

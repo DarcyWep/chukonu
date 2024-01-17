@@ -161,7 +161,7 @@ func NewDMVCCProcessorAll(config *params.ChainConfig, chainDb ethdb.Database, tx
 		cknTxs:                   txs,
 		tokenManagerNumCPU:       1,
 		schedulerNumCPU:          schedulerNumCPU,
-		executorNumCPU:           threadNum,
+		executorNumCPU:           threadNum - 2,
 		tokenManagerCh:           make(dmvccTokenChan, chanSize),
 		schedulerCh:              make([]dmvccTokenChan, schedulerNumCPU), // 用多个chan实现
 		executorCh:               make(dmvccExecutorChan, chanSize),

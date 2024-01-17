@@ -19,12 +19,12 @@ import (
 
 const (
 	testTxsLen               = 10000
-	compareLen               = 10000
+	compareLen               = 500
 	slotConflictDetectionNum = 2
 )
 
 func DetectionOverhead() {
-	runtime.GOMAXPROCS(slotConflictDetectionNum)
+	runtime.GOMAXPROCS(slotConflictDetectionNum + 4)
 	time.Sleep(100 * time.Millisecond)
 	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
 	if err != nil {

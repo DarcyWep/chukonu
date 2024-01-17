@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	threadNum  = 4
+	threadNum  = 44
 	testTxsLen = 10000
-	compareLen = 10000
+	compareLen = 5000
 	tpsTxs     = "../data/tps.txt" // serial, chukonu
 )
 

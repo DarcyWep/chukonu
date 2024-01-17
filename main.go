@@ -7,7 +7,6 @@ import (
 	"chukonu/core/types"
 	"chukonu/core/vm"
 	"chukonu/database"
-	"chukonu/experiment/dmvcc"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
@@ -130,7 +129,30 @@ func testChuKoNuFast() {
 
 }
 
+func computing20WBlocksTxSum() {
+	db, err := database.OpenDatabaseWithFreezer(&config.DefaultsEthConfig, database.DefaultRawConfig())
+	if err != nil {
+		fmt.Println("open leveldb", err)
+		return
+	}
+	defer db.Close()
+
+	var txSum uint64 = 0
+	min, max, addSpan := big.NewInt(14000001), big.NewInt(14200001), big.NewInt(1)
+	for i := min; i.Cmp(max) == -1; i = i.Add(i, addSpan) {
+		block, err2 := database.GetBlockByNumber(db, i) // 正式执行的区块
+		if err2 != nil {
+			fmt.Println(err2)
+			return
+		}
+		txSum += uint64(block.Transactions().Len())
+		fmt.Println(block.Number().String(), txSum)
+	}
+
+}
+
 func main() {
+	//computing20WBlocksTxSum()
 	//testChuKoNu()
 	//replayTransactions()
 	//for i := 0; i < 100; i++ {
@@ -145,5 +167,5 @@ func main() {
 	//chukonu.TestChuKoNuLargeTPS()
 	//chukonu.TestChuKoNuBlockTPS()
 	//dmvcc.TestDMVCCTPSByLarge()
-	dmvcc.TestDMVCCTPSByBlock()
+	//dmvcc.TestDMVCCTPSByBlock()
 }
