@@ -370,12 +370,19 @@ func (s *ChuKoNuTxStateDB) getDeletedStateObject(addr common.Address) *ChuKoNuTx
 	if obj := s.stateObjects[addr]; obj != nil {
 		return obj
 	}
-	originObj := s.statedb.GetOriginStateAccount(addr)
+	//originObj := s.statedb.GetOriginStateAccount(addr)
+	//data := &types.StateAccount{
+	//	Nonce:    originObj.Nonce,
+	//	Balance:  originObj.Balance,
+	//	CodeHash: originObj.CodeHash,
+	//	Root:     originObj.Root,
+	//}
+
 	data := &types.StateAccount{
-		Nonce:    originObj.Nonce,
-		Balance:  originObj.Balance,
-		CodeHash: originObj.CodeHash,
-		Root:     originObj.Root,
+		Nonce:    0,
+		Balance:  new(big.Int).SetInt64(0),
+		CodeHash: types.EmptyCodeHash.Bytes(),
+		Root:     types.EmptyRootHash,
 	}
 	// Insert into the live set
 	obj := NewChuKoNuTxObject(s, s.statedb, addr, *data, true, nil, false)

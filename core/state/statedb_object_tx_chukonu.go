@@ -120,8 +120,8 @@ func (s *ChuKoNuTxStateObject) GetCommittedState(key common.Hash) common.Hash {
 	if _, destructed := s.txdb.stateObjectsDestruct[s.address]; destructed {
 		return common.Hash{}
 	}
-
-	return s.statedb.GetOriginState(s.address, key) // 需并发的从statedb中读取
+	return common.Hash{}
+	//return s.statedb.GetOriginState(s.address, key) // 需并发的从statedb中读取
 }
 
 // SetState updates a value in account storage.

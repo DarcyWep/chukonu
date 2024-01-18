@@ -7,6 +7,7 @@ import (
 	"chukonu/core/types"
 	"chukonu/core/vm"
 	"chukonu/database"
+	"chukonu/experiment/chukonu"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"math/big"
@@ -164,7 +165,7 @@ func main() {
 	//testChuKoNuFast()
 	//observation_server.Observation()
 	//conflict_detection.DetectionOverhead()
-	//chukonu.TestChuKoNuLargeTPS()
+	chukonu.TestChuKoNuLargeTPS()
 	//chukonu.TestChuKoNuBlockTPS()
 	//dmvcc.TestDMVCCTPSByLarge()
 	//dmvcc.TestDMVCCTPSByBlock()
