@@ -137,7 +137,7 @@ type ChuKoNuFastLargeProcessor struct {
 
 func NewChuKoNuFastLargeProcessor(config *params.ChainConfig, chainDb ethdb.Database, txs ChuKoNuLargeTxs, statedb *state.ChuKoNuStateDB) *ChuKoNuFastLargeProcessor {
 	tokenManagerNumCPU := 10
-	schedulerNumCPU := 10
+	schedulerNumCPU := 13
 	executorNumCPU := 32 - tokenManagerNumCPU - schedulerNumCPU
 	cp := &ChuKoNuFastLargeProcessor{
 		config:             config,

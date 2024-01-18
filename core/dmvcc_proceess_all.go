@@ -173,9 +173,9 @@ func NewDMVCCProcessorAll(config *params.ChainConfig, chainDb ethdb.Database, tx
 }
 
 func (p *DMVCCProcessorAll) DMVCCProcessAll(statedb *state.ChuKoNuStateDB, cfg vm.Config) time.Duration {
+	startTime := time.Now()
 	states, statesLen := p.conflictDetection(statedb) // 依赖队列的长度
 
-	startTime := time.Now()
 	p.tokenManagerWg.Add(p.tokenManagerNumCPU)
 	for i := 0; i < p.tokenManagerNumCPU; i++ {
 		go p.tokenManager(statedb)

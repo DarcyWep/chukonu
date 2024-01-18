@@ -18,7 +18,7 @@ import (
 
 const (
 	// 4, 8, 16, 32
-	tpsTxs     = "../data/dmvcc_tps_4.txt" // serial, chukonu
+	tpsTxs     = "../data/dmvcc_all_tps_4.txt" // serial, chukonu
 	threadNum  = 4
 	testTxsLen = 10000
 	compareLen = 5000
