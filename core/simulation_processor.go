@@ -162,7 +162,7 @@ func (p *SimulationProcessor) applyConcurrent(header *types.Header, tx *types.Tr
 		if !tune || result == nil || !ok {
 			break
 		} else {
-			fmt.Println(tx.Hash())
+			//fmt.Println(tx.Hash())
 			len_ := len(stmTxDB.Slots)
 			if len_ > 0 {
 				tuneTransfer = stmTxDB.Slots[len_-1]

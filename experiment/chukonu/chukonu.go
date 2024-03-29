@@ -20,7 +20,7 @@ const (
 	threadNum  = 44
 	testTxsLen = 10000
 	compareLen = 5000
-	tpsTxs     = "../data/tps.txt" // serial, chukonu
+	tpsTxs     = "../data/chukonu_all_tps_4.txt" // serial, chukonu
 )
 
 func TestChuKoNuLargeTPS() {

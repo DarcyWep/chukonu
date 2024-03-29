@@ -142,7 +142,7 @@ func (p *StmStateProcessor) applyConcurrent(header *types.Header, tx *types.Tran
 		gp          = new(GasPool).AddGas(header.GasLimit)
 	)
 
-	stmTxDB := state.NewStmTransaction(tx, i, stmStateDB, false)
+	stmTxDB := state.NewStmTransaction(tx, i, stmStateDB, true)
 	vmenv := vm.NewEVM(*blockContext, vm.TxContext{}, stmTxDB, p.config, cfg)
 	msg, _ := TransactionToMessage(tx, types.MakeSigner(p.config, header.Number), header.BaseFee)
 

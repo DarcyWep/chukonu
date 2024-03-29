@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 	"math/big"
-	"runtime"
 	"sort"
 	"strconv"
 	"sync"
@@ -135,20 +134,23 @@ type ChuKoNuFastProcessor struct {
 }
 
 func NewChuKoNuFastProcessor(config *params.ChainConfig, chainDb ethdb.Database, block *types.Block, statedb *state.ChuKoNuStateDB) *ChuKoNuFastProcessor {
+	tokenManagerNumCPU := 1
 	schedulerNumCPU := 1
+	executorNumCPU := 4 - tokenManagerNumCPU - schedulerNumCPU
+	slotConflictDetectionNum := 4
 	cp := &ChuKoNuFastProcessor{
 		config:                   config,
 		chainDb:                  chainDb,
 		cknTxs:                   make(chuKoNuTxs, block.Transactions().Len()),
-		tokenManagerNumCPU:       1,
+		tokenManagerNumCPU:       tokenManagerNumCPU,
 		schedulerNumCPU:          schedulerNumCPU,
-		executorNumCPU:           30,
+		executorNumCPU:           executorNumCPU,
 		tokenManagerCh:           make(tokenChan, chanSize),
 		schedulerCh:              make([]tokenChan, schedulerNumCPU), // 用多个chan实现
 		executorCh:               make(executorChan, chanSize),
 		closeCh:                  make(closeChan, chanSize/2),
 		feeCh:                    make(feeChan, block.Transactions().Len()+10),
-		slotConflictDetectionNum: runtime.NumCPU(),
+		slotConflictDetectionNum: slotConflictDetectionNum,
 	}
 	for i, tx := range block.Transactions() {
 		tx.Index = i
@@ -158,9 +160,9 @@ func NewChuKoNuFastProcessor(config *params.ChainConfig, chainDb ethdb.Database,
 }
 
 func (p *ChuKoNuFastProcessor) ChuKoNuFast(block *types.Block, statedb *state.ChuKoNuStateDB, cfg vm.Config) float64 {
+	startTime := time.Now()
 	addresses, accountLen := p.accountConflictDetection(statedb) // 依赖队列的长度
 
-	startTime := time.Now()
 	p.tokenManagerWg.Add(p.tokenManagerNumCPU)
 	for i := 0; i < p.tokenManagerNumCPU; i++ {
 		go p.tokenManager(statedb)

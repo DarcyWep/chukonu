@@ -136,9 +136,10 @@ type ChuKoNuFastLargeProcessor struct {
 }
 
 func NewChuKoNuFastLargeProcessor(config *params.ChainConfig, chainDb ethdb.Database, txs ChuKoNuLargeTxs, statedb *state.ChuKoNuStateDB) *ChuKoNuFastLargeProcessor {
-	tokenManagerNumCPU := 10
-	schedulerNumCPU := 13
-	executorNumCPU := 32 - tokenManagerNumCPU - schedulerNumCPU
+	tokenManagerNumCPU := 1
+	schedulerNumCPU := 2
+	executorNumCPU := 4 - tokenManagerNumCPU - schedulerNumCPU
+	slotConflictDetectionNum := 32
 	cp := &ChuKoNuFastLargeProcessor{
 		config:             config,
 		chainDb:            chainDb,
@@ -152,7 +153,7 @@ func NewChuKoNuFastLargeProcessor(config *params.ChainConfig, chainDb ethdb.Data
 		closeCh:            make(closeChan, chanSize/2),
 		feeCh:              make(feeChan, 10),
 		//slotConflictDetectionNum: runtime.NumCPU(),
-		slotConflictDetectionNum: 32,
+		slotConflictDetectionNum: slotConflictDetectionNum,
 	}
 	return cp
 }
@@ -242,6 +243,7 @@ func (p *ChuKoNuFastLargeProcessor) accountConflictDetection(statedb *state.ChuK
 	close(accountInfoCh)
 	slotConflictDetectionWg.Wait()
 
+	//fmt.Println("conflict finish")
 	return accountQueue, len(accountQueue)
 	//return len(accountQueue)
 }
