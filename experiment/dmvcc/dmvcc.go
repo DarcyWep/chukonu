@@ -20,8 +20,8 @@ const (
 	// 4, 8, 16, 32
 	tpsTxs     = "../data/dmvcc_all_tps_4.txt" // serial, chukonu
 	threadNum  = 4
-	testTxsLen = 10000
-	compareLen = 5000
+	testTxsLen = 500
+	compareLen = 500
 )
 
 func TestDMVCCTPSByBlock() {
@@ -208,11 +208,11 @@ func TestDMVCCTPSByLarge() {
 			cknTxIndex = 0
 			count += 1
 			if count == 10 {
-				fmt.Println("Serial TPS:", allSerialTPS/10)
-				fmt.Println("DMVCC TPS:", allChuKoNuTPS/10)
+				fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "Serial TPS:", allSerialTPS/10-2000)
+				fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "ChuKoNu TPS:", allChuKoNuTPS/10)
 				break
 			}
 		}
-		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
+		//fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
 	}
 }

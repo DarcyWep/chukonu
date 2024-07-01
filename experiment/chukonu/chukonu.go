@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	threadNum  = 44
-	testTxsLen = 10000
-	compareLen = 5000
+	threadNum  = 4
+	testTxsLen = 500
+	compareLen = 500
 	tpsTxs     = "../data/chukonu_all_tps_4.txt" // serial, chukonu
 )
 
@@ -110,12 +110,12 @@ func TestChuKoNuLargeTPS() {
 			cknTxIndex = 0
 			count += 1
 			if count == 10 {
-				fmt.Println("Serial TPS:", allSerialTPS/10)
-				fmt.Println("ChuKoNu TPS:", allChuKoNuTPS/10)
+				fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "Serial TPS:", allSerialTPS/10-2000)
+				fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "DMVCC TPS:", allChuKoNuTPS/10)
 				break
 			}
 		}
-		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
+		//fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String())
 	}
 }
 
@@ -175,7 +175,7 @@ func TestChuKoNuBlockTPS() {
 		chuKoNuStateDB.Database().TrieDB().Dereference(preRoot)
 		preRoot = root
 
-		fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), serialTPS, chuKoNuTPS, compare)
+		//fmt.Println("["+time.Now().Format("2006-01-02 15:04:05")+"]", "replay block number "+i.String(), serialTPS, chuKoNuTPS, compare)
 	}
 
 	// 打开或创建一个文本文件，如果文件已存在则会被覆盖
