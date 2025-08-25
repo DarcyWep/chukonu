@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="1aaf2f98-a6e1-4ca6-b26d-9b120574cf2a" name="fuzh">
+        <fileTransfer rootFolder="/home/fuzh" accessType="SFTP" host="222.20.94.68" port="50016" sshConfigId="df8fe9ff-626d-4668-af0d-481771959730" sshConfig="fuzh@222.20.94.68:50016 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="976d1e30-2198-4d7f-ab9c-986524c41094" name="wuep">
+        <fileTransfer rootFolder="/home/wuep" accessType="SFTP" sshConfigId="f079df4d-a159-4e6d-9d05-d7fcd4878c19" sshConfig="wuep@222.20.94.68:50005 key">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
